@@ -1,4 +1,4 @@
-import { fresh, updateTraining, type Save } from './campaign'
+import { fresh, updateTraining, chapters, type Save } from './campaign'
 
 export const legacyKey = 'bash-quest.ecos.v1'
 
@@ -45,12 +45,25 @@ export async function storeSlot(id: string, state: Save): Promise<void> {
   })
 }
 
+export async function deleteSlot(id: string): Promise<void> {
+  const db = await database()
+  return new Promise((resolve, reject) => {
+    const transaction = db.transaction('partidas', 'readwrite')
+    transaction.objectStore('partidas').delete(id)
+    transaction.oncomplete = () => resolve()
+    transaction.onabort = () => reject(transaction.error)
+  })
+}
+
 export function hydrate(state: Save): Save {
   const hydrated = {
     ...fresh(),
     ...state,
     trainingVersion: state.trainingVersion,
   }
+  // Old saves inherit every already introduced sector silently, without replaying unlocks.
+  if (!Array.isArray(state.library))
+    hydrated.library = ['man', ...chapters.slice(0, Math.min(state.completed + 1, 7)).flatMap((chapter) => chapter.tools)]
   updateTraining(hydrated)
   return hydrated
 }

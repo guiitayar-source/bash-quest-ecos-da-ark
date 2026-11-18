@@ -391,6 +391,50 @@ canvas {
   z-index: 1;
   white-space: nowrap;
 }
+#energy-objective:not(:empty) {
+  position: absolute;
+  z-index: 1;
+  top: 34px;
+  left: 15px;
+  max-width: 65%;
+  padding: 5px 8px;
+  background: #111b17e8;
+  border-left: 2px solid #b6d88a;
+  color: #e3edd8;
+  font: 11px var(--mono);
+  pointer-events: none;
+}
+.energy-sector .layout {
+  grid-template-columns: minmax(0, 1fr);
+}
+.energy-sector .viewport {
+  width: 100%;
+  max-width: 1050px;
+  justify-self: center;
+}
+.energy-sector .layout > aside,
+.energy-sector .route,
+.energy-sector #chapter-tag {
+  display: none;
+}
+.energy-hint:not([hidden]) {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: #d9e9cd;
+  border: 1px solid #546847;
+  border-radius: 4px;
+  padding: 4px 8px;
+  font: 11px var(--mono);
+}
+.energy-hint:hover,
+.energy-hint:focus-visible {
+  border-color: var(--green);
+}
+dialog.energy-terminal {
+  border-color: #a8d982;
+  box-shadow: 0 0 0 2px #a8d98255, 0 18px 70px #000c;
+}
 .interact {
   display: flex;
   align-items: center;
@@ -1528,4 +1572,271 @@ dialog .modalbody {
 
 .front-button:focus-visible {
   outline-color: #edb272;
+}
+
+.discoveries { margin-top: 1rem; padding: .75rem 1rem; border-left: 3px solid #eabf63; background: rgba(234, 191, 99, .1); }
+.discoveries p { margin: .25rem 0; }
+.discoveries b { color: #eabf63; }
+
+/* Perfil de experiência & exclusão de slots */
+.difficulty-options {
+  display: grid;
+  gap: 8px;
+  margin-top: 7px;
+}
+.difficulty-options label {
+  position: relative;
+  cursor: pointer;
+}
+.difficulty-options input {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+}
+.difficulty-options span {
+  display: grid;
+  gap: 3px;
+  padding: 10px 12px;
+  border: 1px solid #5d6b62;
+  border-radius: 4px;
+  background: #172322;
+}
+.difficulty-options strong {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 14px;
+  color: #f2ebd9;
+}
+.difficulty-options em {
+  font: 400 10px var(--mono);
+  font-style: normal;
+  letter-spacing: 0.08em;
+  color: #e1bb89;
+  border: 1px solid #6b6851;
+  border-radius: 3px;
+  padding: 2px 6px;
+}
+.difficulty-options small {
+  font-size: 12px;
+  line-height: 1.4;
+  color: #c1c7b3;
+}
+.difficulty-options input:checked + span,
+.difficulty-options input:focus-visible + span {
+  outline: 2px solid #edb272;
+  background: #2f2f27;
+}
+.slot-row {
+  display: flex;
+  align-items: stretch;
+  gap: 6px;
+}
+.slot-row .slot {
+  flex: 1;
+}
+.slot-confirm {
+  display: flex;
+  gap: 4px;
+}
+.slot-del {
+  min-height: 44px;
+  padding: 8px 11px;
+  font-size: 13px;
+  color: #c9d1c2;
+  justify-content: center;
+}
+.slot-del.danger {
+  border-color: #9e5f4b;
+  background: #3d241e;
+  color: #ffd3c0;
+}
+
+/* Operador */
+.op-profile {
+  font: 10px var(--mono);
+  color: #a9bca3;
+  margin-top: 2px;
+}
+
+/* Terminal aprimorado */
+dialog.wide:has(.with-explorer) {
+  width: min(920px, 95vw);
+}
+.termtab-right {
+  margin-left: auto;
+}
+.termtabs button.active {
+  border-color: #495e41;
+  color: var(--green);
+  border-radius: 4px;
+  background: #1d281b;
+}
+.term-goals {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 12px;
+  margin-bottom: 10px;
+  padding: 7px 10px;
+  border: 1px solid #2b382c;
+  border-radius: 4px;
+  background: #101712;
+  font-size: 12px;
+}
+.term-goal {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: #a8b7a5;
+}
+.term-goal.done {
+  color: #9ed488;
+}
+.term-goal.next {
+  color: #dde8d7;
+}
+.term-chips {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+  margin-left: auto;
+}
+.term-chip {
+  font: 11px var(--mono);
+  color: #c2dab5;
+  background: #1c271e;
+  border: 1px solid #394a38;
+  border-radius: 3px;
+  padding: 2px 7px;
+}
+.term-chip:hover {
+  border-color: var(--green);
+  color: var(--green);
+}
+.terminal-layout.with-explorer {
+  display: grid;
+  grid-template-columns: minmax(0, 1.85fr) minmax(190px, 1fr);
+  gap: 12px;
+  align-items: start;
+}
+.terminal-main {
+  min-width: 0;
+}
+.term-explorer {
+  display: grid;
+  gap: 6px;
+  padding: 9px;
+  background: #0c140f;
+  border: 1px solid #2f3e30;
+  border-radius: 4px;
+  max-height: 36vh;
+  overflow-y: auto;
+}
+.explorer-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  font: 11px var(--mono);
+  color: var(--green);
+  padding-bottom: 6px;
+  border-bottom: 1px solid #243125;
+  word-break: break-all;
+}
+.explorer-up {
+  font: 11px var(--mono);
+  padding: 1px 6px;
+  border: 1px solid #3d4f3d;
+  border-radius: 3px;
+  color: #d6e4ce;
+}
+.explorer-list {
+  display: grid;
+  gap: 3px;
+}
+.explorer-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  text-align: left;
+  padding: 4px 6px;
+  border-radius: 3px;
+  font: 12px var(--mono);
+  color: #d0ddd0;
+}
+.explorer-item:hover {
+  background: #1b281e;
+  color: var(--green);
+}
+.explorer-item.nested {
+  padding-left: 18px;
+  font-size: 11px;
+  color: #aebfae;
+}
+.explorer-item span {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.explorer-item small {
+  font-size: 10px;
+  color: #879886;
+}
+.explorer-empty,
+.explorer-tip {
+  font-size: 11px;
+  color: #829381;
+  margin: 2px 0;
+}
+.complete-hint {
+  margin: 6px 0 0;
+  font: 12px var(--mono);
+  color: #b7d2a8;
+}
+
+/* Editor lint & Manual search */
+.editor-lint {
+  margin-top: 8px;
+  padding: 8px 11px;
+  border-left: 3px solid #e9b96d;
+  background: #282319;
+  border-radius: 3px;
+  font-size: 12px;
+  color: #f3dbb2;
+}
+.editor-lint p {
+  margin: 3px 0;
+  color: #f3dbb2;
+}
+.manual-search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 14px;
+  padding: 7px 11px;
+  border: 1px solid #3d4f3d;
+  border-radius: 4px;
+  background: #0c140f;
+  color: #9cb09b;
+}
+.manual-search input {
+  flex: 1;
+  border: 0;
+  outline: 0;
+  background: none;
+  color: var(--text);
+  font-size: 14px;
+}
+@media (max-width: 720px) {
+  .terminal-layout.with-explorer {
+    grid-template-columns: 1fr;
+  }
+  .slot-row {
+    flex-direction: column;
+  }
 }

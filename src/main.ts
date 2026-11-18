@@ -4,6 +4,8 @@ import '@fontsource/barlow-condensed/latin-600.css'
 import '@fontsource/barlow-condensed/latin-700.css'
 import '@fontsource/ibm-plex-mono/latin-400.css'
 import './style.css'
+import { playCue, type SoundCue } from './audio'
+import { acquire, card, summary } from './manual'
 import {
   createElement,
   Compass,
@@ -40,10 +42,14 @@ import {
   Activity,
   DoorOpen,
   CircleHelp,
+  Folder,
+  FileText,
+  Search,
+  Play,
+  PanelRight,
 } from 'lucide'
 import {
   chapters,
-  manual,
   fresh,
   mark,
   record,
@@ -56,12 +62,15 @@ import {
   enter,
   scriptName,
   restoreRoom,
+  diagnoseScript,
+  starterTemplate,
 } from './campaign'
 import { run, path, write } from './shell'
 import { bootWorld, nearby, type Spot } from './world'
-import { hydrate, importLegacy, slots, storeSlot, type Slot } from './saves'
+import { deleteSlot, hydrate, importLegacy, slots, storeSlot, type Slot } from './saves'
 import { frontMarkup, type MenuMode } from './front'
-import { crew, conversation, suits, type NPC } from './story'
+import { crew, conversation, difficulties, playerDifficulty, suits, type NPC } from './story'
+import { bashLint, completeCommand, diskEntries, operatorRank } from './assist'
 const icons = {
   Compass,
   BookOpen,
@@ -97,6 +106,11 @@ const icons = {
   Activity,
   DoorOpen,
   CircleHelp,
+  Folder,
+  FileText,
+  Search,
+  Play,
+  PanelRight,
 }
 const icon = (name: keyof typeof icons, size = 18) =>
   createElement(icons[name], {
@@ -136,6 +150,7 @@ const practiceHints: Record<string, number> = {}
 let modal = '',
   notice = '',
   heldTerminal = false,
+  restoringEnergy = false,
   history: string[] = [],
   historyPos = 0,
   frame: ReturnType<typeof bootWorld> | undefined
@@ -171,51 +186,22 @@ async function save() {
     status.textContent = saved ? 'Salvo localmente' : 'Falha ao salvar'
   return saved
 }
-let soundCtx: AudioContext | undefined
-const soundNotes = {
-  interface: [460],
-  accepted: [520, 660],
-  rejected: [310, 200],
-  mission: [520, 660, 790, 1040],
-}
-function tone(cue: keyof typeof soundNotes = 'interface') {
-  if (!s.sound) return
-  try {
-    soundCtx ??= new AudioContext()
-    const context = soundCtx
-    const notes = soundNotes[cue]
-    void context
-      .resume()
-      .then(() => {
-        if (!s.sound) return
-        const start = context.currentTime
-        for (const [i, frequency] of notes.entries()) {
-          const at = start + i * 0.085
-          const oscillator = context.createOscillator()
-          const gain = context.createGain()
-          oscillator.type = 'triangle'
-          oscillator.frequency.value = frequency
-          gain.gain.setValueAtTime(0.0001, at)
-          gain.gain.exponentialRampToValueAtTime(0.037, at + 0.008)
-          gain.gain.exponentialRampToValueAtTime(0.0001, at + 0.12)
-          oscillator.connect(gain).connect(context.destination)
-          oscillator.start(at)
-          oscillator.stop(at + 0.13)
-        }
-      })
-      .catch(() => {})
-  } catch {
-    /* Audio is optional. */
-  }
-}
+const tone = (cue: SoundCue = 'interface') => playCue(cue, () => s.sound)
+let newAcquisitions: string[] = []
+let manualTopic = ''
+let manualSearch = ''
+let returnScreen: 'terminal' | 'editor' = 'terminal'
+let terminalInput = ''
+let confirmDelete: number | undefined
+let explorerOverride: boolean | undefined
 $('#app').innerHTML =
   `<div id="front" class="front"></div><div id="journey" hidden><header><div class="top"><a class="brand" href="#" aria-label="Bash Quest, exploração"><img src="/ark.svg" alt=""><span>BASH<span class="brand-dot">_</span>QUEST<small>ECOS DA ARK</small></span></a>
 <nav aria-label="Navegação principal">${button('world', icon('Compass') + 'Exploração', 'nav active')}${button('journal', icon('NotebookText') + 'Diário', 'nav')}${button('manual', icon('BookOpen') + 'Manual', 'nav')}</nav>
 <div class="right-top">${button('menu', 'Menu', 'game-menu')}<span class="save"><i></i><span id="saved">Salvo localmente</span></span>${button('sound', '', 'square', 'aria-label="Ativar som"')}${button('controls', icon('CircleHelp'), 'square', 'aria-label="Controles do jogo"')}</div></div></header>
 <main><div class="heading"><div><div class="eyebrow"><i class="slash"></i> ESTAÇÃO ARK <b>/</b> <span id="sector"></span></div><h1 id="title"></h1></div><div id="chapter-tag"></div></div>
 <div class="layout"><section class="viewport card" id="viewport" aria-label="Visor de exploração"><div class="cardhead"><span class="cap">${icon('Monitor', 16)} Visor de exploração</span><div class="feed"><i></i> AO VIVO ${button('full', icon('Maximize', 15), 'plain', 'aria-label="Ampliar visor"')}</div></div>
-<div class="stage"><div id="game"></div><div class="camera-label"><b></b><span id="cam"></span></div><div class="corner tr"></div><div class="corner bl"></div><div class="corner br"></div><div id="interact"></div></div>
-<div class="bindings"><span><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> <em>ou</em> <span class="arrows">↑←↓→</span> Mover</span><span><kbd>E</kbd> Interagir</span><span><kbd>J</kbd> Diário</span><span><kbd>M</kbd> Manual</span></div></section>
+<div class="stage"><div id="game"></div><div class="camera-label"><b></b><span id="cam"></span></div><div id="energy-objective" aria-live="polite"></div><div class="corner tr"></div><div class="corner bl"></div><div class="corner br"></div><div id="interact"></div></div>
+<div class="bindings"><span><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> <em>ou</em> <span class="arrows">↑←↓→</span> Mover</span><span><kbd>E</kbd> Interagir</span><span><kbd>J</kbd> Diário</span><span><kbd>M</kbd> Manual</span>${button('hint', icon('Lightbulb', 14) + ' Dica', 'energy-hint', 'hidden')}</div></section>
 <aside><section class="mission card" id="mission"></section><section class="operator card" id="operator"></section><section class="toolbox card" id="toolbox"></section></aside></div>
 <section class="route card"><div class="routehead"><h2>${icon('Route', 20)} Rota da campanha</h2><span id="route-count"></span></div><div id="route"></div></section></main>
 <footer><span><i></i> ARK OS <b>//</b> SISTEMA DE EXPLORAÇÃO</span><span>BASH QUEST <b>/</b> ECOS DA ARK</span></footer></div>
@@ -228,13 +214,14 @@ function displayMenu(mode: MenuMode, error = '') {
   menuMode = mode
   journey.hidden = true
   front.hidden = false
-  front.innerHTML = frontMarkup(mode, menuEntries, Boolean(activeId), error)
+  front.innerHTML = frontMarkup(mode, menuEntries, Boolean(activeId), error, confirmDelete)
   if (mode === 'new') $('#character-name').focus()
   else front.querySelector('button')?.focus({ preventScroll: true })
 }
 async function openMenu(mode: MenuMode = 'title', flush = true) {
   if (menuBusy) return
   menuBusy = true
+  confirmDelete = undefined
   let message = ''
   try {
     if (flush && activeId && !(await save()))
@@ -256,7 +243,7 @@ function resumeJourney() {
     frame = bootWorld(
       $('#game'),
       s,
-      () => menuVisible || Boolean(modal),
+      () => menuVisible || Boolean(modal) || restoringEnergy,
       (moved) => {
         syncInteraction()
         if (moved && !menuVisible) void save()
@@ -273,10 +260,15 @@ function loadSlot(slot: Slot) {
   modal = ''
   heldTerminal = false
   commandFeedback = undefined
+  confirmDelete = undefined
+  explorerOverride = undefined
+  manualSearch = ''
   const state = hydrate(slot.state)
   const resume = state.screen
   Object.assign(s, state, { story: state.story })
   history = []
+  newAcquisitions = []
+  terminalInput = ''
   historyPos = 0
   talking = undefined
   activeId = slot.id
@@ -294,6 +286,9 @@ front.addEventListener('submit', async (event) => {
   const fields = new FormData(form)
   const name = String(fields.get('name') || '').trim()
   const suit = suits.find((item) => item.id === fields.get('suit'))
+  const difficulty =
+    difficulties.find((item) => item.id === fields.get('difficulty'))?.id ??
+    'windows'
   const input = $<HTMLInputElement>('#character-name')
   if (!name || !suit) {
     input.value = ''
@@ -301,7 +296,7 @@ front.addEventListener('submit', async (event) => {
     return
   }
   const state = fresh()
-  state.story = { player: { name, suit: suit.id }, step: 'wake' }
+  state.story = { player: { name, suit: suit.id }, step: 'wake', difficulty }
   state.x = 174
   state.y = 170
   const id = crypto.randomUUID()
@@ -367,6 +362,13 @@ function render() {
     g = goals(s, n),
     practice = activePractice(s, n),
     opening = openingObjective()
+  journey.classList.toggle('energy-sector', s.room === 1)
+  $<HTMLButtonElement>('.energy-hint').hidden = s.room !== 1 || s.completed > 1
+  $('#energy-objective').textContent = s.room !== 1 ? '' : s.completed > 1
+    ? 'Energia restaurada'
+    : !s.seen.includes('label') ? 'Examine o painel'
+      : !s.seen.includes('circuit') ? 'Encontre o registro do circuito'
+        : 'Acione o relé no painel'
   $('#sector').textContent =
     s.room === -1 ? 'CONEXÃO ENTRE SETORES' : 'SETOR ' + pad(s.room + 1)
   $('#title').textContent =
@@ -418,14 +420,21 @@ function render() {
         icon('ChevronRight', 14),
       'hint',
     )
+  const diffMeta = difficulties.find((d) => d.id === playerDifficulty(s))
   $('#operator').innerHTML =
     '<div class="avatar"><img src="/art/player-' +
     (s.story?.player.suit ?? 'ochre') +
-    '-1.png" alt=""></div><div class="opbody"><div class="ophead"><span class="micro">OPERADOR</span><b>NV. ' +
+    '-1.png" alt=""></div><div class="opbody"><div class="ophead"><span class="micro">' +
+    esc(operatorRank(s.completed).toUpperCase()) +
+    '</span><b>NV. ' +
     pad(s.completed + 1) +
     '</b></div><strong>' +
     esc(s.story?.player.name ?? (finished ? 'Guardião da ARK' : 'Explorador')) +
-    '</strong><div class="xp"><i style="width:' +
+    '</strong>' +
+    (diffMeta
+      ? '<div class="op-profile">' + esc(diffMeta.name) + '</div>'
+      : '') +
+    '<div class="xp"><i style="width:' +
     (s.completed / 7) * 100 +
     '%"></i></div><small>' +
     s.completed * 100 +
@@ -436,7 +445,8 @@ function render() {
     icon('Terminal', 15) +
     ' Ferramentas do setor</span><div class="chips">' +
     chapters[lesson].tools
-      .map((tool, i) => button('tool:' + lesson + ':' + i, esc(tool)))
+      .filter((tool) => s.library.includes(tool))
+      .map((tool) => button('topic:' + tool, esc(tool)))
       .join('') +
     '</div>'
   $('#route-count').textContent = s.completed + ' de 7 setores restaurados'
@@ -478,7 +488,7 @@ let toastTimer = 0
 function layout(title: string, kicker: string, body: string, wide = false) {
   const status = document.querySelector('#toast')
   if (status) document.body.appendChild(status)
-  dialog.className = wide ? 'wide' : ''
+  dialog.className = [wide ? 'wide' : '', s.room === 1 && modal === 'terminal' ? 'energy-terminal' : ''].filter(Boolean).join(' ')
   dialog.innerHTML =
     '<div class="modalbar"><div><span class="micro">' +
     kicker +
@@ -510,6 +520,8 @@ function close() {
   s.screen = 'world'
   notice = ''
   heldTerminal = false
+  newAcquisitions = []
+  terminalInput = ''
   save()
   render()
   if (s.completed === 7 && !s.endsSeen) {
@@ -567,14 +579,16 @@ function show(type: string) {
     c = chapters[n],
     practice = activePractice(s, n)
   if (type === 'terminal') {
+    const diff = playerDifficulty(s)
+    const showExplorer = explorerOverride ?? diff === 'windows'
     const messages = [
       'Lara deixou uma mensagem para você na cabine. <code>pwd</code> mostra a pasta em que você está. <code>ls</code> lista o que ela guarda. Assim que encontrar o arquivo, use <code>cat</code> seguido do nome para ler o conteúdo.',
       'A etiqueta da máquina indica um circuito. Use <code>ls</code> para localizar a pasta dos registros. <code>cd</code> muda de pasta e <code>cd ..</code> volta à pasta acima. Depois de achar o registro, você já sabe como ler.',
       'Precisamos juntar as fichas sem perder os originais. <code>mkdir</code> cria uma pasta. <code>cp</code> deixa uma cópia no destino e conserva a origem. A rota, porém, está no lugar errado. Use <code>mv</code> para tirá-la de lá e colocá-la na navegação.',
       'O receptor gravou cada chiado. <code>grep SOS sinais.log</code> imprime só as linhas com SOS. O sinal pode ir direto para <code>contato.txt</code>. O <code>&gt;</code> cria o arquivo ou substitui o conteúdo dele. Depois, <code>echo</code> produz a linha de confirmação e <code>&gt;&gt;</code> a acrescenta ao mesmo arquivo.',
-      'Você montou o boletim à mão em dois turnos. Agora a estação pode repetir o procedimento: salve os comandos no editor, um por linha. <code>bash rotina.sh</code> lê e executa essas instruções em ordem. O editor começa com a primeira linha do boletim.',
-      'Você viu uma cápsula com pulso e outra vazia. <code>[ -s arquivo ]</code> verifica se existe conteúdo. O <code>if</code> usa o resultado desse teste para escolher entre dois caminhos. Use <code>echo</code> para gravar o estado escolhido.',
-      'Você já abriu os fragmentos em grupo com <code>*.frag</code>. O <code>for</code> passa um caminho por vez ao seu código. Dentro dele, use a triagem que você acabou de aprender para recuperar só os fragmentos com conteúdo.',
+      'Você montou o boletim à mão e testou variáveis. Agora a estação pode repetir o procedimento: salve os comandos no editor, um por linha. <code>bash rotina.sh</code> lê e executa essas instruções em ordem.',
+      'Você já testou cápsulas com <code>[ -s arquivo ]</code>. O <code>if</code> usa o resultado desse teste para escolher entre dois caminhos. Use <code>echo</code> com <code>&gt;</code> para gravar o estado escolhido.',
+      'Você já percorreu os fragmentos com <code>for</code> e <code>*.frag</code>. Agora reúna tudo: zere <code>memoria.txt</code> e <code>relatorio.txt</code> no início, teste cada arquivo com <code>if [ -s "$arquivo" ]</code> e acrescente conteúdo e caminho com <code>&gt;&gt;</code>.',
     ]
     const localPractice = activePractice(s, s.room)
     const voice =
@@ -582,15 +596,99 @@ function show(type: string) {
       (s.room === 0 ? 'NOAH' : s.room % 2 ? 'IARA' : 'NOAH')
     const onboarding =
       '<div class="transmission">' +
-      esc(voice.toUpperCase()) +
+      esc(diff === 'dev' ? 'MODO DEV · ESPECIFICAÇÃO' : voice.toUpperCase()) +
       '</div>' +
       (localPractice
         ? '<strong>' +
           esc(localPractice.title) +
           '</strong><br>' +
           esc(localPractice.brief)
-        : messages[s.room] +
-          (s.room > 0 ? '<br><br>' + esc(chapters[s.room].desc) : ''))
+        : diff === 'dev'
+          ? esc(chapters[s.room].desc)
+          : messages[s.room] +
+            (s.room > 0 ? '<br><br>' + esc(chapters[s.room].desc) : ''))
+    const roomGoals = goals(s, s.room)
+    const goalStrip =
+      '<div class="term-goals">' +
+      (localPractice
+        ? '<span class="term-goal next">' +
+          icon('Flag', 12) +
+          ' ' +
+          esc(localPractice.title) +
+          '</span>'
+        : chapters[s.room].goals
+            .map(
+              (label, idx) =>
+                '<span class="term-goal ' +
+                (roomGoals[idx] ? 'done' : 'next') +
+                '">' +
+                icon(roomGoals[idx] ? 'Check' : 'Diamond', 11) +
+                ' ' +
+                esc(label) +
+                '</span>',
+            )
+            .join('')) +
+      '<div class="term-chips">' +
+      chapters[s.room].tools
+        .filter((tool) => s.library.includes(tool))
+        .map((tool) => button('topic:' + tool, esc(tool), 'term-chip'))
+        .join('') +
+      '</div></div>'
+    const explorerTree = (() => {
+      if (!showExplorer) return ''
+      const entries = diskEntries(s, s.cwd)
+      const renderEntry = (entry: ReturnType<typeof diskEntries>[number]) => {
+        const arg = entry.name.includes(' ')
+          ? '"' + entry.name + (entry.isDir ? '/' : '"')
+          : entry.name + (entry.isDir ? '/' : '')
+        const nested = entry.isDir
+          ? diskEntries(s, path(s.cwd, entry.name))
+              .slice(0, 6)
+              .map((sub) => {
+                const subPath = entry.name + '/' + sub.name + (sub.isDir ? '/' : '')
+                const subArg = subPath.includes(' ') ? '"' + subPath + '"' : subPath
+                return button(
+                  'insert:' + subArg,
+                  icon(sub.isDir ? 'Folder' : 'FileText', 12) +
+                    ' <span>' +
+                    esc(sub.name) +
+                    '</span><small>' +
+                    (sub.isDir ? 'pasta' : sub.size === 0 ? 'vazio' : sub.size + ' B') +
+                    '</small>',
+                  'explorer-item nested',
+                )
+              })
+              .join('')
+          : ''
+        return (
+          button(
+            'insert:' + arg,
+            icon(entry.isDir ? 'Folder' : 'FileText', 13) +
+              ' <span>' +
+              esc(entry.name) +
+              '</span><small>' +
+              (entry.isDir ? 'pasta' : entry.size === 0 ? 'vazio' : entry.size + ' B') +
+              '</small>',
+            'explorer-item',
+          ) + nested
+        )
+      }
+      return (
+        '<aside class="term-explorer" aria-label="Arquivos do setor"><div class="explorer-head"><span>' +
+        icon('Folder', 13) +
+        ' ' +
+        esc(s.cwd) +
+        '</span>' +
+        (s.cwd !== '/' && s.cwd !== '/ark'
+          ? button('insert:..', '..', 'explorer-up', 'title="Inserir .."')
+          : '') +
+        '</div><div class="explorer-list">' +
+        (entries.length
+          ? entries.map(renderEntry).join('')
+          : '<p class="explorer-empty">Pasta vazia</p>') +
+        '</div><small class="explorer-tip">Clique para inserir no comando</small></aside>'
+      )
+    })()
     layout(
       'Terminal de bordo',
       'ARK OS / SESSÃO LOCAL',
@@ -600,15 +698,30 @@ function show(type: string) {
           ? button('editor', icon('FileCode', 15) + 'Editor de script')
           : '') +
         button('manual', icon('BookOpen', 15) + 'Manual') +
+        button(
+          'toggle-explorer',
+          icon('PanelRight', 15) + (showExplorer ? 'Ocultar arquivos' : 'Arquivos'),
+          'termtab-right' + (showExplorer ? ' active' : ''),
+        ) +
         '</div><div class="tguide">' +
         onboarding +
-        '</div><div class="terminal-view"><pre id="output"></pre>' +
-        (s.room === 3 && s.completed === 3 && !localPractice
+        (newAcquisitions.length
+          ? '<div class="discoveries" aria-label="Habilidades adquiridas">' +
+            newAcquisitions.map((topic) => '<p><b>NOVO · ' + esc(topic) + '</b> — ' + esc(summary(topic)) + '</p>').join('') +
+            '</div>'
+          : '') +
+        '</div>' +
+        goalStrip +
+        '<div class="terminal-layout' +
+        (showExplorer ? ' with-explorer' : '') +
+        '"><div class="terminal-main"><div class="terminal-view"><pre id="output"></pre>' +
+        (s.room === 3 && s.completed === 3 && !localPractice && diff !== 'dev'
           ? '<p class="radio-tip">' + esc(radioTip(s)) + '</p>'
           : '') +
         '<form id="command-form"><label for="command">ark:' +
         esc(s.cwd) +
         ' $</label><input id="command" autocomplete="off" autocapitalize="off" spellcheck="false" aria-label="Comando Bash"></form></div>' +
+        '<p id="complete-hint" class="complete-hint" hidden></p>' +
         (commandFeedback
           ? '<p class="command-feedback ' +
             (commandFeedback.ok ? 'accepted' : 'rejected') +
@@ -617,9 +730,11 @@ function show(type: string) {
             esc(commandFeedback.text) +
             '</p>'
           : '') +
-        '<div class="modfoot"><span><kbd>Enter</kbd> Executar &nbsp; <kbd>Esc</kbd> Voltar à estação</span><div class="terminal-actions">' +
+        '</div>' +
+        explorerTree +
+        '</div><div class="modfoot"><span><kbd>Enter</kbd> Executar &nbsp; <kbd>Tab</kbd> Completar &nbsp; <kbd>Esc</kbd> Voltar à estação</span><div class="terminal-actions">' +
         button('sound', '', 'square') +
-        button('hint', icon('Lightbulb', 15) + ' Dica', 'textbtn') +
+        (diff !== 'dev' ? button('hint', icon('Lightbulb', 15) + ' Dica', 'textbtn') : '') +
         '</div>' +
         '</div>',
       true,
@@ -631,8 +746,28 @@ function show(type: string) {
       execute()
     })
     const input = $<HTMLInputElement>('#command')
+    const completeHint = $('#complete-hint')
+    input.value = terminalInput
+    input.oninput = () => {
+      terminalInput = input.value
+      completeHint.hidden = true
+      completeHint.textContent = ''
+    }
     input.focus()
     input.onkeydown = (e) => {
+      if (e.key === 'Tab') {
+        e.preventDefault()
+        const result = completeCommand(s, input.value)
+        input.value = result.value
+        terminalInput = result.value
+        if (result.options.length > 1) {
+          completeHint.textContent = 'Opções: ' + result.options.join('  ')
+          completeHint.hidden = false
+        } else {
+          completeHint.hidden = true
+        }
+        return
+      }
       if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
         e.preventDefault()
         historyPos = Math.max(
@@ -640,17 +775,16 @@ function show(type: string) {
           Math.min(history.length, historyPos + (e.key === 'ArrowUp' ? -1 : 1)),
         )
         input.value = history[historyPos] || ''
+        terminalInput = input.value
       }
     }
     $('.terminal-view').scrollTop = $('.terminal-view').scrollHeight
   } else if (type === 'editor') {
+    const diff = playerDifficulty(s)
     const d = (s.drafts[s.room] ??= {
       name: scriptName(s.room),
       body: String(
-        s.disk[path(s.cwd, scriptName(s.room))] ??
-          (s.room === 4
-            ? 'cat turno.txt > boletim.txt\n# Escreva aqui o comando que acrescenta a confirmação.\n'
-            : ''),
+        s.disk[path(s.cwd, scriptName(s.room))] ?? starterTemplate(s, s.room),
       ),
     })
     layout(
@@ -668,76 +802,132 @@ function show(type: string) {
         esc(s.cwd) +
         '<input id="filename" value="' +
         esc(d.name) +
-        '"></label><label class="field">Código Bash<textarea id="code" spellcheck="false" placeholder="# Escreva um comando por linha"></textarea></label><div class="modfoot"><span>Rascunho salvo ao digitar</span>' +
+        '"></label><label class="field">Código Bash<textarea id="code" spellcheck="false" placeholder="# Escreva um comando por linha"></textarea></label>' +
+        '<div id="editor-lint" class="editor-lint" hidden></div>' +
+        '<div class="modfoot"><span>Rascunho salvo ao digitar · <kbd>Tab</kbd> indenta · <kbd>Ctrl+Enter</kbd> executa</span><div class="actions">' +
         button(
           'savefile',
           icon('SaveIcon', 16) + ' Salvar arquivo',
+          'outline',
+        ) +
+        button(
+          'saveandrun',
+          icon('Play', 15) + ' Salvar e executar',
           'primary',
         ) +
-        '</div>',
+        '</div></div>',
       true,
     )
     const area = $<HTMLTextAreaElement>('#code')
+    const lintBox = $('#editor-lint')
     area.value = d.body
+    const updateLint = () => {
+      if (diff === 'dev') {
+        lintBox.hidden = true
+        return
+      }
+      const notes = bashLint(area.value)
+      if (!notes.length) {
+        lintBox.hidden = true
+        lintBox.innerHTML = ''
+      } else {
+        lintBox.hidden = false
+        lintBox.innerHTML = notes.map((w) => '<p>⚠ ' + esc(w) + '</p>').join('')
+      }
+    }
     const draft = () => {
       d.body = area.value
       d.name = $<HTMLInputElement>('#filename').value
+      updateLint()
       save()
     }
+    updateLint()
     area.oninput = draft
+    area.onkeydown = (e) => {
+      if (e.key === 'Tab') {
+        e.preventDefault()
+        const start = area.selectionStart
+        const end = area.selectionEnd
+        area.value = area.value.slice(0, start) + '  ' + area.value.slice(end)
+        area.selectionStart = area.selectionEnd = start + 2
+        draft()
+      } else if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+        e.preventDefault()
+        void action('saveandrun')
+      }
+    }
     $('#filename').oninput = draft
     area.focus()
   } else if (type === 'manual') {
-    const back = heldTerminal
-      ? button('backterm', 'Voltar ao terminal', 'primary')
-      : ''
-    layout(
-      'Manual de campo',
-      'BIBLIOTECA DO OPERADOR',
-      '<p class="intro">Comandos descobertos até o capítulo ' +
-        pad(n + 1) +
-        '. Experimente os exemplos no terminal.</p>' +
-        chapters
-          .slice(0, n + 1)
-          .map(
-            (ch, i) =>
-              '<details ' +
-              (i === n ? 'open' : '') +
-              '><summary>' +
-              pad(i + 1) +
+    const back = heldTerminal ? button('backterm', returnScreen === 'editor' ? 'Voltar ao editor' : 'Voltar ao terminal', 'primary') : ''
+    const renderCards = (query: string) => {
+      const q = query.trim().toLowerCase()
+      const baseTerms = manualTopic ? [manualTopic] : s.library
+      const filtered = q
+        ? baseTerms.filter((topic) => {
+            const data = card(topic)
+            return (
+              topic.toLowerCase().includes(q) ||
+              (data && data.some((part) => part.toLowerCase().includes(q)))
+            )
+          })
+        : baseTerms
+      if (!filtered.length) {
+        return s.library.length
+          ? '<p>Nenhuma ficha corresponde à busca “' + esc(query) + '”.</p>'
+          : '<p>A biblioteca man será adquirida no primeiro terminal.</p>'
+      }
+      const renderCard = (topic: string) => {
+        const data = card(topic)
+        if (!data) return ''
+        return '<article class="ref"><h3>' + esc(topic) + '</h3><p><b>Finalidade:</b> ' + esc(data[0]) + '</p><p><b>Sintaxe:</b> <code>' + esc(data[1]) + '</code></p><p><b>Exemplo:</b></p><pre>' + esc(data[2]) + '</pre><p><b>Como ler e o que esperar:</b> ' + esc(data[3]) + '</p><p><b>Erro comum:</b> ' + esc(data[4]) + '</p></article>'
+      }
+      if (manualTopic || q) return filtered.map(renderCard).join('')
+      const groups: string[] = []
+      if (filtered.includes('man')) {
+        groups.push('<h3>Sistema</h3>' + renderCard('man'))
+      }
+      chapters.forEach((ch, idx) => {
+        const tools = ch.tools.filter((t) => filtered.includes(t))
+        if (tools.length) {
+          groups.push(
+            '<h3>Setor ' +
+              pad(idx + 1) +
               ' · ' +
-              ch.title +
-              '</summary>' +
-              ch.tools
-                .map(
-                  (k) =>
-                    '<article class="ref"><strong>' +
-                    esc(k) +
-                    '</strong><p>' +
-                    esc(manual[k][0]) +
-                    '</p><pre>' +
-                    esc(manual[k][1]) +
-                    '</pre></article>',
-                )
-                .join('') +
-              '</details>',
+              esc(ch.short) +
+              '</h3>' +
+              tools.map(renderCard).join(''),
           )
-          .join('') +
-        back,
-    )
-  } else if (type.startsWith('tool:')) {
-    const [, a, b] = type.split(':')
-    const term = chapters[Number(a)].tools[Number(b)]
+        }
+      })
+      return groups.join('')
+    }
     layout(
-      term,
-      'MANUAL DE CAMPO  /  ' + chapters[Number(a)].short.toUpperCase(),
-      '<p>' +
-        esc(manual[term][0]) +
-        '</p><pre>' +
-        esc(manual[term][1]) +
-        '</pre>' +
-        button('close', 'Voltar à exploração', 'primary'),
+      manualTopic ? 'man · ' + manualTopic : 'man · Biblioteca do operador',
+      'BIBLIOTECA ADQUIRIDA',
+      '<p class="intro">As fichas são adquiridas ao acessar o terminal de cada setor. A prática no terminal continua livre.</p>' +
+        (!manualTopic && s.library.length > 1
+          ? '<label class="manual-search">' +
+            icon('Search', 15) +
+            '<input id="manual-search" type="search" placeholder="Filtrar comandos ou conceitos..." value="' +
+            esc(manualSearch) +
+            '" autocomplete="off"></label>'
+          : '') +
+        '<div id="manual-results">' +
+        renderCards(manualTopic ? '' : manualSearch) +
+        '</div><div class="actions">' +
+        (manualTopic ? button('manual-list', 'Todas as fichas', 'outline') : '') +
+        back +
+        '</div>',
+      true,
     )
+    const searchInput = document.querySelector<HTMLInputElement>('#manual-search')
+    if (searchInput) {
+      searchInput.oninput = () => {
+        manualSearch = searchInput.value
+        $('#manual-results').innerHTML = renderCards(manualSearch)
+      }
+    }
   } else if (type === 'journal') {
     layout(
       'Diário de bordo',
@@ -772,6 +962,17 @@ function show(type: string) {
   } else if (type === 'hint' && openingObjective()) {
     layout('Pista', 'CABINE DA ARK', '<p>' + esc(openingObjective()!) + '</p>')
   } else if (type === 'hint') {
+    if (playerDifficulty(s) === 'dev') {
+      layout(
+        'Modo Dev · Sem dicas',
+        (practice?.title ?? c.title).toUpperCase(),
+        '<p>No perfil Dev as dicas passo a passo ficam desativadas. Consulte apenas as especificações do setor e o manual de sintaxe.</p><div class="actions">' +
+          button('manual', 'Abrir manual', 'outline') +
+          (heldTerminal ? button('backterm', 'Voltar ao terminal', 'primary') : '') +
+          '</div>',
+      )
+      return
+    }
     const hints = practice?.hints ?? c.hints
     const count = Math.max(
       1,
@@ -856,12 +1057,23 @@ function show(type: string) {
   } else if (type === 'credits') {
     s.endsSeen = true
     save()
+    const totalHints = s.hints.reduce((acc, v) => acc + v, 0)
+    const diffLabel =
+      difficulties.find((d) => d.id === playerDifficulty(s))?.name ?? 'Operador'
     layout(
       'A ARK se lembra',
       'CAMPANHA CONCLUÍDA',
       '<div class="successbadge">' +
         icon('Cpu', 40) +
-        '</div><p>O silêncio dá lugar às vozes de Lara e Noah. Sete setores voltaram à vida, e o próximo turno encontrará a estação acesa.</p><pre>' +
+        '</div><p>O silêncio dá lugar às vozes de Lara e Noah. Sete setores voltaram à vida, e o próximo turno encontrará a estação acesa.</p>' +
+        '<p class="entry"><b>' +
+        esc(operatorRank(s.completed)) +
+        '</b> · Perfil ' +
+        esc(diffLabel) +
+        ' · ' +
+        totalHints +
+        ' dica(s) consultada(s).</p>' +
+        '<h3>Memória recuperada</h3><pre>' +
         esc(String(s.disk['/ark/memoria/memoria.txt'] || '')) +
         '</pre><h3>Créditos</h3><p>Universo e jogo original: Guilherme Tayar. Ecos da ARK é uma aventura criada a partir de Bash Quest e da missão “O serviço que não se lembra”.</p>' +
         button('close', 'Voltar à estação', 'primary'),
@@ -870,9 +1082,12 @@ function show(type: string) {
     layout(
       'Painel de distribuição',
       'ETIQUETA DE LINHA  /  C07',
-      '<p>A placa identifica o circuito <strong>C07</strong>. Consulte seu registro no terminal para descobrir qual relé alimenta o corredor.</p><div class="actions">' +
+      '<p>A placa identifica o circuito <strong>C07</strong>. ' +
+        (s.completed > 1 ? 'O painel está energizado.' : 'Consulte seu registro no terminal para descobrir qual relé alimenta o corredor.') +
+        '</p><div class="actions">' +
+        (s.completed > 1 ? '' :
         button('relay:azul', 'Relé azul', 'outline') +
-        button('relay:ambar', 'Relé âmbar', 'primary') +
+        button('relay:ambar', 'Relé âmbar', 'outline')) +
         '</div>',
     )
   } else if (type === 'inspect') {
@@ -901,7 +1116,12 @@ function show(type: string) {
             : 'Acesso liberado pela porta ' +
               pad(i + 1) +
               ' do corredor de manutenção.') +
-        '</p>',
+        '</p>' +
+        (i <= s.completed && i !== s.room
+          ? '<div class="actions">' +
+            button('travel:' + i, 'Ir para este setor', 'primary') +
+            '</div>'
+          : ''),
     )
   }
 }
@@ -923,32 +1143,96 @@ function progress() {
   if (finish(s)) {
     tone('mission')
     render()
+    if (s.room === 1) {
+      close()
+      restoringEnergy = true
+      frame?.restoreEnergy()
+      window.setTimeout(() => {
+        restoringEnergy = false
+        if (!menuVisible && s.room === 1) show('success')
+      }, window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 900 : 2400)
+      return true
+    }
     show('success')
     return true
   }
   render()
   return false
 }
-function execute() {
-  const input = $<HTMLInputElement>('#command'),
-    line = input.value.trim()
+function execute(overrideLine?: string) {
+  const input = document.querySelector<HTMLInputElement>('#command'),
+    line = (overrideLine ?? input?.value ?? '').trim()
   if (!line) return
   history.push(line)
   historyPos = history.length
   const prompt = s.cwd
+  terminalInput = ''
+  if (line === 'clear') {
+    s.log = []
+    commandFeedback = { ok: true, text: 'Tela do terminal limpa.' }
+    tone('accepted')
+    show('terminal')
+    return
+  }
+  if (line === 'help') {
+    s.log.push('ark:' + prompt + ' $ help')
+    if (s.library.includes('man')) {
+      manualTopic = ''
+      manualSearch = ''
+      returnScreen = 'terminal'
+      heldTerminal = true
+      tone('accepted')
+      show('manual')
+    } else {
+      s.log.push('Acesse o primeiro terminal e consulte as ferramentas adquiridas com man.')
+      commandFeedback = { ok: true, text: 'Use man para abrir o manual de campo.' }
+      tone('accepted')
+      show('terminal')
+    }
+    return
+  }
+  const manMatch = /^man(?:\s+(\S+))?\s*$/.exec(line)
+  if (manMatch && s.library.includes('man')) {
+    const topic = manMatch[1] || ''
+    s.log.push('ark:' + prompt + ' $ ' + line)
+    if (topic && !s.library.includes(topic)) {
+      s.log.push('Ficha não adquirida: ' + topic)
+      commandFeedback = { ok: false, text: 'Ficha não adquirida: ' + topic }
+      tone('rejected')
+      show('terminal')
+      return
+    }
+    manualTopic = topic
+    manualSearch = ''
+    returnScreen = 'terminal'
+    heldTerminal = true
+    tone('accepted')
+    show('manual')
+    return
+  }
   const r = run(s, line)
   s.log.push('ark:' + prompt + ' $ ' + line)
   if (r.out) s.log.push(r.out.trimEnd())
+  const lastCmd = r.trace.at(-1)?.cmd
+  const isSizeTest = !r.error && (lastCmd === '[' || lastCmd === 'test')
   const failure =
     r.error ||
-    (r.status
-      ? r.trace.at(-1)?.cmd === 'grep'
+    (r.status && !isSizeTest
+      ? lastCmd === 'grep'
         ? 'O grep não encontrou nenhuma linha correspondente.'
         : 'O comando terminou com status ' + r.status + '.'
       : '')
-  commandFeedback = failure
-    ? { ok: false, text: 'Falha no comando. ' + failure }
-    : { ok: true, text: 'Comando executado.' }
+  if (isSizeTest) {
+    const okLabel = r.status === 0
+      ? 'Teste [ -s ]: verdadeiro (status 0 — arquivo tem conteúdo).'
+      : 'Teste [ -s ]: falso (status 1 — arquivo vazio ou ausente).'
+    s.log.push('→ ' + okLabel)
+    commandFeedback = { ok: true, text: okLabel }
+  } else {
+    commandFeedback = failure
+      ? { ok: false, text: 'Falha no comando. ' + failure }
+      : { ok: true, text: 'Comando executado.' }
+  }
   if (failure) s.log.push('⚠ ' + failure)
   record(s, r)
   const practiced = !failure && advancePractice(s)
@@ -963,12 +1247,12 @@ function execute() {
   ) {
     const checks = goals(s, s.room)
     if (!checks.every(Boolean)) {
+      const diag = diagnoseScript(s, s.room)
       const problem =
-        s.room === 6 && checks[1]
-          ? 'O resultado inicial confere. Teste o script com outros nomes, um arquivo vazio e duas execuções seguidas.'
-          : 'Confira este objetivo: ' +
-            chapters[s.room].goals[checks.indexOf(false)] +
-            '.'
+        diag.reason ||
+        'Confira este objetivo: ' +
+          chapters[s.room].goals[checks.indexOf(false)] +
+          '.'
       s.log.push('Verificação · ' + problem)
       if (!failure)
         commandFeedback = {
@@ -980,14 +1264,14 @@ function execute() {
   s.log = s.log.slice(-100)
   if (failure) render()
   else if (progress()) return
-  tone(commandFeedback.ok ? 'accepted' : 'rejected')
+  tone(failure ? 'rejected' : 'accepted')
   show('terminal')
 }
 function moveRoom(n: number) {
   commandFeedback = undefined
   enter(s, n)
   frame?.refresh()
-  tone()
+  tone('door')
   render()
 }
 function interact(p?: Spot) {
@@ -1007,6 +1291,8 @@ function interact(p?: Spot) {
       return
     }
     mark(s, 'terminal' + s.room)
+    newAcquisitions = acquire(s, s.room)
+    if (newAcquisitions.length) tone('unlock')
     heldTerminal = true
     render()
     show('terminal')
@@ -1048,6 +1334,7 @@ function interact(p?: Spot) {
   }
 }
 async function action(act: string) {
+  if (restoringEnergy) return
   if (menuBusy) return
   if (act === 'menu' || act === 'new' || act === 'listing') {
     await openMenu(
@@ -1070,6 +1357,54 @@ async function action(act: string) {
   if (act.startsWith('load:')) {
     const slot = menuEntries[Number(act.slice(5))]
     if (slot) loadSlot(slot)
+    return
+  }
+  if (act.startsWith('ask-delete:')) {
+    confirmDelete = Number(act.slice(11))
+    displayMenu(menuMode)
+    return
+  }
+  if (act === 'cancel-delete') {
+    confirmDelete = undefined
+    displayMenu(menuMode)
+    return
+  }
+  if (act.startsWith('confirm-delete:')) {
+    const idx = Number(act.slice(15))
+    const slot = menuEntries[idx]
+    if (slot) {
+      await deleteSlot(slot.id)
+      if (activeId === slot.id) activeId = undefined
+      confirmDelete = undefined
+      await openMenu('load', false)
+      toast('Partida removida.')
+    }
+    return
+  }
+  if (act.startsWith('travel:')) {
+    const idx = Number(act.slice(7))
+    if (idx >= 0 && idx <= s.completed && idx !== s.room) {
+      close()
+      moveRoom(idx)
+    }
+    return
+  }
+  if (act === 'toggle-explorer') {
+    const diff = playerDifficulty(s)
+    explorerOverride = !(explorerOverride ?? diff === 'windows')
+    if (modal === 'terminal') terminalInput = $<HTMLInputElement>('#command').value
+    show('terminal')
+    return
+  }
+  if (act.startsWith('insert:')) {
+    const snippet = act.slice(7)
+    const input = document.querySelector<HTMLInputElement>('#command')
+    if (input) {
+      const space = input.value && !/\s$/.test(input.value) ? ' ' : ''
+      input.value = input.value + space + snippet
+      terminalInput = input.value
+      input.focus()
+    }
     return
   }
   if (act.startsWith('reply:')) {
@@ -1121,19 +1456,25 @@ async function action(act: string) {
     return
   }
   if (act === 'backterm') {
-    show('terminal')
+    show(returnScreen)
     return
   }
-  if (act === 'savefile') {
+  if (act === 'savefile' || act === 'saveandrun') {
     const d = s.drafts[s.room]
     try {
       if (!d.name.trim()) throw new Error('Informe o nome do arquivo.')
-      write(s, path(s.cwd, d.name), d.body)
-      s.log.push('Editor · salvo ' + d.name)
+      const fileName = d.name.trim()
+      write(s, path(s.cwd, fileName), d.body)
+      s.log.push('Editor · salvo ' + fileName)
       save()
       render()
-      show('terminal')
-      toast('Arquivo salvo: ' + d.name)
+      if (act === 'saveandrun') {
+        const quoted = fileName.includes(' ') ? '"' + fileName + '"' : fileName
+        execute('bash ' + quoted)
+      } else {
+        show('terminal')
+        toast('Arquivo salvo: ' + fileName)
+      }
     } catch (e) {
       toast((e as Error).message)
     }
@@ -1152,6 +1493,20 @@ async function action(act: string) {
     if (!progress()) close()
     return
   }
+  if (act === 'manual-list') { manualTopic = ''; show('manual'); return }
+  if (act.startsWith('topic:')) {
+    const topic = act.slice(6)
+    if (s.library.includes(topic)) { manualTopic = topic; show('manual') }
+    return
+  }
+  if (act === 'manual') {
+    manualTopic = ''
+    manualSearch = ''
+  }
+  if ((act === 'hint' || act === 'manual') && (modal === 'terminal' || modal === 'editor')) {
+    returnScreen = modal
+    if (modal === 'terminal') terminalInput = $<HTMLInputElement>('#command').value
+  }
   if (
     (act === 'hint' || act === 'manual') &&
     (modal === 'terminal' || modal === 'editor')
@@ -1169,7 +1524,8 @@ $('.brand').onclick = (e) => {
 }
 dialog.addEventListener('cancel', (e) => {
   e.preventDefault()
-  close()
+  if (modal === 'manual' && heldTerminal) show(returnScreen)
+  else close()
 })
 document.addEventListener('keydown', (e) => {
   if (
@@ -1178,7 +1534,8 @@ document.addEventListener('keydown', (e) => {
     e.altKey ||
     e.metaKey ||
     dialog.open ||
-    menuVisible
+    menuVisible ||
+    restoringEnergy
   )
     return
   const k = e.key.toLowerCase()
@@ -1189,6 +1546,10 @@ document.addEventListener('keydown', (e) => {
   }
   if (k === 'm' || k === 'j') {
     e.preventDefault()
+    if (k === 'm') {
+      manualTopic = ''
+      manualSearch = ''
+    }
     show(k === 'm' ? 'manual' : 'journal')
   }
 })

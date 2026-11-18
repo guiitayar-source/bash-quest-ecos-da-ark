@@ -115,6 +115,8 @@ test('missão final rejeita uma saída fixa e exige solução reproduzível', ()
   s.cwd = '/ark/memoria'
   record(s, run(s, 'cat fragmentos/*.frag'))
   assert.equal(advancePractice(s), 'Padrão de memória')
+  record(s, run(s, 'for arq in fragmentos/*.frag; do cat "$arq"; done'))
+  assert.equal(advancePractice(s), 'Percorrendo arquivos com for')
   s.disk[s.cwd + '/recuperar.sh'] = recovery
   record(s, run(s, 'bash recuperar.sh'))
   s.disk[s.cwd + '/recuperar.sh'] = 'echo falso'

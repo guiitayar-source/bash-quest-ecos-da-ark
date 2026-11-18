@@ -1,4 +1,4 @@
-import type { Story } from './story'
+import { playerDifficulty, type Difficulty, type Story } from './story'
 import { path, run, type Disk, type Result, type Session } from './shell'
 
 export const chapters = [
@@ -39,7 +39,7 @@ export const chapters = [
       'Use ls, depois cd circuitos. Com cd .. você volta à pasta anterior.',
       'Leia cat /ark/energia/circuitos/c07.log. Examine a máquina outra vez para escolher o relé.',
     ],
-    lore: 'O eletricista riscou o rótulo antigo. Sob o verniz novo ainda se lê C07.',
+    lore: 'O eletricista riscou o rótulo antigo do painel e cobriu a placa com verniz.',
     restored: 'O relé fechou. As luzes do corredor acenderam em sequência.',
     tools: ['cd', '..'],
   },
@@ -261,6 +261,7 @@ export function updateTraining(s: Save) {
 export interface Save extends Session {
   version: 1
   trainingVersion?: 1
+  library: string[]
   story?: Story
   completed: number
   room: number
@@ -279,6 +280,7 @@ export function fresh(): Save {
   return {
     version: 1,
     trainingVersion: 1,
+    library: [],
     disk: initialDisk(),
     cwd: home(0),
     vars: {},
@@ -342,15 +344,52 @@ export function record(s: Save, r: Result) {
       )
         mark(s, 'compared-fragments')
     }
+    if (n === 4 && !r.error) {
+      if (
+        typeof s.disk[h + '/rascunho.txt'] === 'string' &&
+        (s.disk[h + '/rascunho.txt'] as string).length > 0
+      )
+        mark(s, 'wrote-rascunho')
+      if (
+        s.vars.fonte === 'turno noturno.txt' &&
+        t.cmd === 'cat' &&
+        resolved.includes(h + '/turno noturno.txt')
+      )
+        mark(s, 'practiced-var')
+    }
+    if (n === 5 && (t.cmd === '[' || t.cmd === 'test')) {
+      const args = [...t.args]
+      if (t.cmd !== '[' || args.pop() === ']') {
+        if (args.length === 2 && args[0] === '-s') {
+          const target = path(t.cwd, args[1])
+          for (const sample of ['amostra.frag', 'reserva.frag'])
+            if (target === h + '/' + sample) mark(s, 'tested:' + sample)
+        }
+      }
+    }
     if (t.cmd === 'bash' && resolved[0] === h + '/' + scriptName(n) && !r.error)
       mark(s, 'ran' + n)
   }
+  if (
+    n === 6 &&
+    !r.error &&
+    r.trace.filter(
+      (t) =>
+        t.cmd === 'cat' &&
+        t.args.length === 1 &&
+        path(t.cwd, t.args[0]).startsWith(h + '/fragmentos/'),
+    ).length >= 3 &&
+    r.out.includes('Iara: ainda ouço') &&
+    r.out.includes('Noah: encontramos')
+  ) {
+    mark(s, 'practiced-for')
+  }
 }
-function scriptTrial(s: Save, n: number, variant: number): boolean {
+function trialEnv(s: Save, n: number, variant: number) {
   const h = home(n),
     filename = h + '/' + scriptName(n),
     src = s.disk[filename]
-  if (typeof src !== 'string') return false
+  if (typeof src !== 'string') return
   const disk = initialDisk()
   disk[filename] = src
   const env: Session = { cwd: h, disk, vars: {} }
@@ -359,14 +398,25 @@ function scriptTrial(s: Save, n: number, variant: number): boolean {
   if (n === 6) {
     for (const k of Object.keys(disk))
       if (k.startsWith(h + '/fragmentos/')) delete disk[k]
-    for (const [k, v] of Object.entries({
+    const fixtures: Record<string, string> = {
       'a zero.frag': '',
       'b.frag': 'Retorno do teste.\n',
       'c eco.frag': 'Outro eco.\n',
       'ignorar.log': 'ruído\n',
-    }))
+    }
+    if (playerDifficulty(s) === 'dev') {
+      fixtures['d  duplo.frag'] = 'Espaço duplo.\n'
+    }
+    for (const [k, v] of Object.entries(fixtures))
       disk[h + '/fragmentos/' + k] = v
   }
+  return { h, disk, env }
+}
+
+function scriptTrial(s: Save, n: number, variant: number): boolean {
+  const setup = trialEnv(s, n, variant)
+  if (!setup) return false
+  const { h, disk, env } = setup
   for (let i = 0; i < 2; i++) {
     const r = run(env, 'bash ' + scriptName(n))
     if (r.error) return false
@@ -383,6 +433,157 @@ function scriptTrial(s: Save, n: number, variant: number): boolean {
     if (n === 6 && !recovered(disk)) return false
   }
   return true
+}
+
+export function diagnoseScript(
+  s: Save,
+  n: number,
+): { ok: boolean; reason?: string } {
+  const h = home(n),
+    filename = h + '/' + scriptName(n)
+  if (typeof s.disk[filename] !== 'string') {
+    return {
+      ok: false,
+      reason: 'Salve primeiro o arquivo ' + scriptName(n) + ' no Editor de script.',
+    }
+  }
+  if (n === 4) {
+    const setup = trialEnv(s, 4, 0)!
+    const expected = setup.disk[h + '/turno.txt'] + 'pronto\n'
+    const r1 = run(setup.env, 'bash ' + scriptName(4))
+    if (r1.error) return { ok: false, reason: r1.error }
+    const out1 = setup.disk[h + '/boletim.txt']
+    if (typeof out1 !== 'string')
+      return { ok: false, reason: 'O script não criou boletim.txt.' }
+    if (out1 !== expected) {
+      if (out1.includes('Turno de Iara'))
+        return {
+          ok: false,
+          reason:
+            'boletim.txt usou texto fixo em vez de ler o conteúdo atual de turno.txt.',
+        }
+      return {
+        ok: false,
+        reason:
+          'boletim.txt deve conter o conteúdo de turno.txt seguido de uma linha com “pronto”.',
+      }
+    }
+    const r2 = run(setup.env, 'bash ' + scriptName(4))
+    if (r2.error) return { ok: false, reason: r2.error }
+    if (setup.disk[h + '/boletim.txt'] !== expected) {
+      return {
+        ok: false,
+        reason:
+          'Na segunda execução, boletim.txt acumulou linhas antigas. Use > (um sinal) na primeira gravação para recriar o arquivo.',
+      }
+    }
+    return { ok: true }
+  }
+  if (n === 5) {
+    for (const variant of [0, 1]) {
+      const setup = trialEnv(s, 5, variant)!
+      const expected = variant ? 'vazio\n' : 'legível\n'
+      const r1 = run(setup.env, 'bash ' + scriptName(5))
+      if (r1.error) return { ok: false, reason: r1.error }
+      const out1 = setup.disk[h + '/estado.txt']
+      if (out1 !== expected) {
+        return {
+          ok: false,
+          reason: variant
+            ? 'Quando amostra.frag está vazio, estado.txt deve receber exatamente “vazio”.'
+            : 'Quando amostra.frag tem conteúdo, estado.txt deve receber exatamente “legível”.',
+        }
+      }
+      const r2 = run(setup.env, 'bash ' + scriptName(5))
+      if (r2.error) return { ok: false, reason: r2.error }
+      if (setup.disk[h + '/estado.txt'] !== expected) {
+        return {
+          ok: false,
+          reason:
+            'Na segunda execução, estado.txt acumulou linhas antigas. Use > em vez de >> nos dois ramos do if.',
+        }
+      }
+    }
+    return { ok: true }
+  }
+  if (n === 6) {
+    const setup = trialEnv(s, 6, 0)!
+    const r1 = run(setup.env, 'bash ' + scriptName(6))
+    if (r1.error) {
+      if (
+        r1.error.includes('Arquivo não encontrado') ||
+        r1.error.includes('testar o tamanho')
+      ) {
+        return {
+          ok: false,
+          reason:
+            'Falha ao lidar com espaço no nome do arquivo. Use aspas em "$arquivo" dentro do if [ -s "$arquivo" ], cat e echo.',
+        }
+      }
+      return { ok: false, reason: r1.error }
+    }
+    const mem1 = String(setup.disk[h + '/memoria.txt'] ?? '')
+    const rel1 = String(setup.disk[h + '/relatorio.txt'] ?? '')
+    if (!mem1 && !rel1) {
+      return {
+        ok: false,
+        reason: 'O script não gravou dados em memoria.txt nem em relatorio.txt.',
+      }
+    }
+    if (mem1.includes('ruído') || rel1.includes('ignorar.log')) {
+      return {
+        ok: false,
+        reason:
+          'O script leu ignorar.log. No laço for, selecione apenas fragmentos/*.frag.',
+      }
+    }
+    if (rel1.includes('a zero.frag')) {
+      return {
+        ok: false,
+        reason:
+          'Um fragmento vazio entrou em relatorio.txt. Filtre com if [ -s "$arquivo" ].',
+      }
+    }
+    if (rel1.includes('/ark/memoria/')) {
+      return {
+        ok: false,
+        reason:
+          'relatorio.txt recebeu caminho absoluto. Use o caminho relativo (ex.: fragmentos/01.frag).',
+      }
+    }
+    if (!recovered(setup.disk)) {
+      return {
+        ok: false,
+        reason:
+          'Confira se relatorio.txt traz apenas os caminhos relativos dos fragmentos válidos e memoria.txt o conteúdo deles, na ordem dos nomes.',
+      }
+    }
+    const r2 = run(setup.env, 'bash ' + scriptName(6))
+    if (r2.error) return { ok: false, reason: r2.error }
+    if (!recovered(setup.disk)) {
+      return {
+        ok: false,
+        reason:
+          'Na segunda execução, memoria.txt ou relatorio.txt acumulou dados antigos. Zere os dois arquivos com > memoria.txt e > relatorio.txt antes do laço for.',
+      }
+    }
+    return { ok: true }
+  }
+  return { ok: true }
+}
+
+export function starterTemplate(s: Save, n: number): string {
+  if (playerDifficulty(s) === 'windows') {
+    if (n === 4)
+      return 'cat turno.txt > boletim.txt\n# Escreva aqui o comando que acrescenta "pronto" em boletim.txt.\n'
+    if (n === 5)
+      return 'if [ -s "amostra.frag" ]; then\n  # grave "legível" em estado.txt com >\nelse\n  # grave "vazio" em estado.txt com >\nfi\n'
+    if (n === 6)
+      return '> memoria.txt\n> relatorio.txt\nfor arquivo in fragmentos/*.frag; do\n  # teste [ -s "$arquivo" ] e acrescente conteúdo e caminho com >>\ndone\n'
+  }
+  return n === 4
+    ? 'cat turno.txt > boletim.txt\n# Escreva aqui o comando que acrescenta a confirmação.\n'
+    : ''
 }
 function recovered(d: Disk) {
   const h = home(6),
@@ -518,6 +719,7 @@ interface Practice {
   voice: string
   brief: string
   hints: string[]
+  levels?: Difficulty[]
   check: (s: Save) => boolean
 }
 
@@ -533,6 +735,7 @@ const practices: Partial<Record<number, Practice[]>> = {
         'Você acabou de usar cp para manter o original. Agora o destino é outra pasta.',
         'Use cp equipe/iara.txt enfermaria/iara.txt.',
       ],
+      levels: ['windows', 'vibe'],
       check: (s) =>
         s.disk['/ark/arquivo/enfermaria/iara.txt'] === initialCrew.iara &&
         s.disk['/ark/arquivo/equipe/iara.txt'] === initialCrew.iara,
@@ -549,6 +752,7 @@ const practices: Partial<Record<number, Practice[]>> = {
         'Liste remessas para descobrir o nome do registro. Você já sabe criar a pasta de destino e gravar uma única linha.',
         'Use mkdir escuta. Depois, grep "SINAL OK" remessas/antena.log > escuta/transmissao.txt e echo inspecionado >> escuta/transmissao.txt.',
       ],
+      levels: ['windows', 'vibe'],
       check: (s) =>
         s.disk['/ark/radio/escuta/transmissao.txt'] ===
         'SINAL OK — alcance restabelecido\ninspecionado\n',
@@ -565,6 +769,7 @@ const practices: Partial<Record<number, Practice[]>> = {
         'No rádio você gravou só uma linha com grep. Aqui você quer o arquivo inteiro, então use cat. O > e o >> funcionam da mesma forma.',
         'Use cat turno.txt > previa.txt e depois echo pronto >> previa.txt. Confira com cat previa.txt.',
       ],
+      levels: ['windows', 'vibe'],
       check: (s) =>
         s.disk['/ark/oficina/previa.txt'] ===
         'Turno de Iara: antena estável.\npronto\n',
@@ -579,9 +784,38 @@ const practices: Partial<Record<number, Practice[]>> = {
         'Teste cat "turno noturno.txt" para ler o novo relato. O procedimento para gravar o boletim continua igual.',
         'Use cat "turno noturno.txt" > previa-noturna.txt e acrescente pronto com >>.',
       ],
+      levels: ['windows', 'vibe'],
       check: (s) =>
         s.disk['/ark/oficina/previa-noturna.txt'] ===
         trainingFiles['/ark/oficina/turno noturno.txt'] + 'pronto\n',
+    },
+    {
+      id: 'variavel',
+      title: 'Guardando nomes em variáveis',
+      voice: 'Noah',
+      brief:
+        'Antes de automatizar, guarde o nome "turno noturno.txt" na variável fonte (sem espaços ao redor do =) e leia esse arquivo usando cat "$fonte".',
+      hints: [
+        'Atribua sem espaços perto do sinal de igual: fonte="turno noturno.txt".',
+        'Depois leia com aspas para preservar o espaço: cat "$fonte".',
+      ],
+      levels: ['windows', 'vibe'],
+      check: (s) => s.seen.includes('practiced-var'),
+    },
+    {
+      id: 'zerar',
+      title: 'Reiniciando antes de repetir',
+      voice: 'Noah',
+      brief:
+        'Se um script só usa >>, cada nova execução duplica o arquivo. Grave turno.txt em rascunho.txt e depois esvazie rascunho.txt usando apenas > rascunho.txt (sem comando à esquerda).',
+      hints: [
+        'Primeiro crie conteúdo: cat turno.txt > rascunho.txt.',
+        'Depois zere o arquivo para 0 bytes com: > rascunho.txt.',
+      ],
+      levels: ['windows', 'vibe'],
+      check: (s) =>
+        s.seen.includes('wrote-rascunho') &&
+        s.disk['/ark/oficina/rascunho.txt'] === '',
     },
   ],
   5: [
@@ -595,9 +829,38 @@ const practices: Partial<Record<number, Practice[]>> = {
         'Leia cada arquivo separadamente para ver de onde veio o pulso.',
         'Use cat amostra.frag e depois cat reserva.frag.',
       ],
+      levels: ['windows', 'vibe'],
       check: (s) =>
         s.seen.includes('inspected:amostra.frag') &&
         s.seen.includes('inspected:reserva.frag'),
+    },
+    {
+      id: 'teste-tamanho',
+      title: 'Testando o pulso no terminal',
+      voice: 'Lara',
+      brief:
+        'O comando [ -s arquivo ] verifica sem imprimir nada se o arquivo tem conteúdo (status 0) ou está vazio (status 1). Teste amostra.frag e reserva.frag no terminal antes de montar seu script.',
+      hints: [
+        'Deixe espaços após [ e antes de ].',
+        'Execute [ -s amostra.frag ] e depois [ -s reserva.frag ].',
+      ],
+      levels: ['windows', 'vibe'],
+      check: (s) =>
+        s.seen.includes('tested:amostra.frag') &&
+        s.seen.includes('tested:reserva.frag'),
+    },
+    {
+      id: 'if-simples',
+      title: 'Primeiro bloco condicional',
+      voice: 'Lara',
+      brief:
+        'Combine o teste com if no terminal: se amostra.frag tiver conteúdo, grave “pulso” em checagem.txt usando if [ -s amostra.frag ]; then echo pulso > checagem.txt; fi.',
+      hints: [
+        'No terminal, separe as partes do if com ponto e vírgula (;).',
+        'Digite: if [ -s amostra.frag ]; then echo pulso > checagem.txt; fi',
+      ],
+      levels: ['windows'],
+      check: (s) => s.disk['/ark/triagem/checagem.txt'] === 'pulso\n',
     },
   ],
   6: [
@@ -611,7 +874,21 @@ const practices: Partial<Record<number, Practice[]>> = {
         'Combine o caminho da pasta com um curinga a partir da raiz do setor.',
         'Use ls fragmentos e depois cat fragmentos/*.frag.',
       ],
+      levels: ['windows', 'vibe'],
       check: (s) => s.seen.includes('compared-fragments'),
+    },
+    {
+      id: 'laco-for',
+      title: 'Percorrendo arquivos com for',
+      voice: 'Lara',
+      brief:
+        'Agora use um laço for para ler cada fragmento um de cada vez: for arq in fragmentos/*.frag; do cat "$arq"; done. Note como as aspas protegem "03 retorno.frag".',
+      hints: [
+        'Se esquecer as aspas em "$arq", o espaço em "03 retorno.frag" quebra o caminho.',
+        'Execute: for arq in fragmentos/*.frag; do cat "$arq"; done',
+      ],
+      levels: ['windows', 'vibe'],
+      check: (s) => s.seen.includes('practiced-for'),
     },
   ],
 }
@@ -620,8 +897,14 @@ const practiceKey = (step: Practice) => 'practice:' + step.id
 
 export function activePractice(s: Save, n = s.completed) {
   if (n !== s.completed) return
+  const diff = playerDifficulty(s)
+  if (diff === 'dev') return
   if ((n === 2 || n === 3) && !goals(s, n).every(Boolean)) return
-  return practices[n]?.find((step) => !s.seen.includes(practiceKey(step)))
+  return practices[n]?.find(
+    (step) =>
+      (!step.levels || step.levels.includes(diff)) &&
+      !s.seen.includes(practiceKey(step)),
+  )
 }
 
 export function advancePractice(s: Save) {
@@ -678,9 +961,9 @@ export function restoreRoom(s: Save) {
     ['label', 'circuit', 'relay'],
     [],
     ['signal'],
-    ['ran4'],
-    ['ran5', 'inspected:amostra.frag', 'inspected:reserva.frag'],
-    ['ran6', 'compared-fragments'],
+    ['ran4', 'practiced-var', 'wrote-rascunho'],
+    ['ran5', 'inspected:amostra.frag', 'inspected:reserva.frag', 'tested:amostra.frag', 'tested:reserva.frag'],
+    ['ran6', 'compared-fragments', 'practiced-for'],
   ][n]
   const cleared = [...flags, ...(practices[n] ?? []).map(practiceKey)]
   s.seen = s.seen.filter((k) => !cleared.includes(k))

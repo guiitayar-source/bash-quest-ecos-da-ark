@@ -1,5 +1,5 @@
 import { chapters } from './campaign'
-import { suits } from './story'
+import { difficulties, suits } from './story'
 import type { Slot } from './saves'
 
 export type MenuMode = 'title' | 'new' | 'load'
@@ -25,6 +25,7 @@ export function frontMarkup(
   entries: Slot[],
   playing: boolean,
   error: string,
+  confirmDelete?: number,
 ) {
   const header =
     '<div class="front-top"><span class="front-brand">' +
@@ -56,6 +57,24 @@ export function frontMarkup(
         )
         .join('') +
       '</div></fieldset>' +
+      '<fieldset><legend>Perfil de experiência</legend><div class="difficulty-options">' +
+      difficulties
+        .map(
+          (d, i) =>
+            '<label><input type="radio" name="difficulty" value="' +
+            d.id +
+            '" ' +
+            (i === 0 ? 'checked' : '') +
+            '><span><strong>' +
+            safe(d.name) +
+            ' <em>' +
+            safe(d.tag) +
+            '</em></strong><small>' +
+            safe(d.desc) +
+            '</small></span></label>',
+        )
+        .join('') +
+      '</div></fieldset>' +
       alert +
       '<div class="front-actions"><button class="front-button primary" type="submit">Começar jornada <span>→</span></button>' +
       menuButton('menu', 'Voltar') +
@@ -72,6 +91,8 @@ export function frontMarkup(
           entries
             .map((entry, i) => {
               const player = entry.state.story?.player
+              const diffId = entry.state.story?.difficulty
+              const diffLabel = difficulties.find((d) => d.id === diffId)?.name
               const location =
                 entry.state.room < 0
                   ? 'Corredor de manutenção'
@@ -80,20 +101,37 @@ export function frontMarkup(
                 dateStyle: 'short',
                 timeStyle: 'short',
               })
-              return menuButton(
-                'load:' + i,
-                '<img src="/art/player-' +
-                  (player?.suit ?? 'ochre') +
-                  '-1.png" alt=""><span><b>' +
-                  safe(player?.name ?? 'Campanha original') +
-                  '</b><small>' +
-                  safe(location) +
-                  ' · ' +
-                  entry.state.completed +
-                  '/7 setores</small></span><time>' +
-                  date +
-                  '</time><span aria-hidden="true">→</span>',
-                'slot',
+              const confirming = confirmDelete === i
+              return (
+                '<div class="slot-row">' +
+                menuButton(
+                  'load:' + i,
+                  '<img src="/art/player-' +
+                    (player?.suit ?? 'ochre') +
+                    '-1.png" alt=""><span><b>' +
+                    safe(player?.name ?? 'Campanha original') +
+                    '</b><small>' +
+                    safe(location) +
+                    ' · ' +
+                    entry.state.completed +
+                    '/7 setores' +
+                    (diffLabel ? ' · ' + safe(diffLabel) : '') +
+                    '</small></span><time>' +
+                    date +
+                    '</time><span aria-hidden="true">→</span>',
+                  'slot',
+                ) +
+                (confirming
+                  ? '<div class="slot-confirm">' +
+                    menuButton('confirm-delete:' + i, 'Confirmar', 'slot-del danger') +
+                    menuButton('cancel-delete', 'Cancelar', 'slot-del') +
+                    '</div>'
+                  : menuButton(
+                      'ask-delete:' + i,
+                      'Excluir',
+                      'slot-del',
+                    )) +
+                '</div>'
               )
             })
             .join('') +

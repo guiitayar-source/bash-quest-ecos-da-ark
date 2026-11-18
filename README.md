@@ -34,3 +34,7 @@ A estação usa um sistema de arquivos virtual. O terminal aceita os comandos do
 - `python art/draw.py` e depois `python art/frontier.py` regeneram as cenas, os retratos e os trajes em pixel art. Requerem Pillow. Os PNGs estão incluídos no projeto.
 
 O jogo usa TypeScript, Phaser e Vite. A interface usa ícones Lucide e fontes Barlow, Barlow Condensed e IBM Plex Mono, empacotadas localmente. A narrativa retoma a estação e a missão “O serviço que não se lembra” do Bash Quest original.
+
+### Biblioteca `man` e habilidades
+
+Cada personagem adquire `man` e as ferramentas de um setor ao acessar seu terminal pela primeira vez. As habilidades aparecem individualmente como **NOVO**, sem interromper a digitação; reabrir ou carregar não repete a conquista. A biblioteca mostra apenas fichas adquiridas, mas o terminal não restringe a prática livre. Digite `man` ou `man pwd` no terminal para abrir a biblioteca ou uma ficha; use Voltar ou Esc para retornar. A aba Manual também preserva o texto não enviado do terminal. Partidas antigas recebem silenciosamente as fichas dos setores já alcançados, sem alterar seus arquivos ou progresso.

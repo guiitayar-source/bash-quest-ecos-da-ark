@@ -225,7 +225,12 @@ function parse(source: string): Block {
   const lines = statements(source)
   let i = 0
   const expect = (token: string) => {
-    if (lines[i++] !== token) fail('Estrutura incompleta. Esperado: ' + token)
+    if (lines[i++] !== token)
+      fail(
+        'Estrutura incompleta. Esperado: ' +
+          token +
+          ' (verifique se fechou if/then/else/fi ou for/do/done).',
+      )
   }
   function block(): Block {
     const result: Block = []
@@ -425,6 +430,22 @@ export function run(s: Session, source: string): Result {
           { ...env, vars: Object.create(null) },
           depth + 1,
           output,
+        )
+      case 'rm':
+      case 'unlink':
+        fail(
+          'Os registros da estação são protegidos contra rm. Use mv para mover ou > arquivo para esvaziar.',
+        )
+      case 'touch':
+        fail(
+          'Para criar ou zerar um arquivo neste simulador, use > nome-do-arquivo.',
+        )
+      case 'nano':
+      case 'vi':
+      case 'vim':
+      case 'code':
+        fail(
+          'Para escrever scripts ou arquivos de várias linhas, use a aba Editor de script.',
         )
       default:
         fail(

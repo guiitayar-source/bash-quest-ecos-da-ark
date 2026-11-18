@@ -34,7 +34,7 @@ export function points(s: Save): Spot[] {
       kind: 'machine',
       x: 113,
       y: 145,
-      name: s.room === 1 ? 'Painel de distribuição' : 'Inspecionar máquina',
+      name: s.room === 1 ? 'Examinar painel' : 'Inspecionar máquina',
     },
     { kind: 'airlock', x: 413, y: 149, name: 'Corredor de manutenção' },
     {
@@ -92,6 +92,11 @@ export function bootWorld(
     private last = ''
     private lastSpot = ''
     private target?: { x: number; y: number }
+    private energyStart = -1
+    private reduced = window.matchMedia('(prefers-reduced-motion: reduce)')
+    restoreEnergy() {
+      this.energyStart = this.time.now
+    }
     preload() {
       for (let n = -1; n < 7; n++)
         for (let active = 0; active < (n === -1 ? 8 : 2); active++) {
@@ -109,6 +114,10 @@ export function bootWorld(
     }
     create() {
       sc = this
+      // The exploration layout can resize without a window resize when rooms change.
+      const observer = new ResizeObserver(() => this.scale.refresh())
+      observer.observe(container)
+      this.events.once('shutdown', () => observer.disconnect())
       this.bg = this.add.image(0, 0, 'room-0-0').setOrigin(0)
       this.glow = this.add.graphics()
       this.shadow = this.add.ellipse(s.x, s.y, 16, 5, 0x101a22, 0.65)
@@ -249,7 +258,7 @@ export function bootWorld(
       }
       this.markers.clear()
       this.glow.clear()
-      const bob = Math.floor(Math.sin(time / 340) * 1.2)
+      const bob = this.reduced.matches ? 0 : Math.floor(Math.sin(time / 340) * 1.2)
       for (const q of points(s)) {
         const active =
           q.kind === 'port'
@@ -290,17 +299,27 @@ export function bootWorld(
           .fillRect(x - 1, y + 2, 2, 1)
       }
       if (s.room >= 0) {
+        if (s.room === 1 && s.completed <= 1) {
+          // A restrained fault indicator on the distribution panel.
+          this.glow.fillStyle(0xe7a65f, this.reduced.matches ? 0.65 : 0.45 + 0.2 * Math.sin(time / 900))
+            .fillRect(106, 112, 3, 2)
+        }
         for (let i = 8; i > 0; i--)
           this.glow
             .fillStyle(0x77ecaa, 0.014)
             .fillEllipse(260, 123, 6 + i * 7, 4 + i * 3)
         this.glow
-          .fillStyle(0xc4ffb8, 0.6 + 0.3 * Math.sin(time / 450))
+          .fillStyle(0xc4ffb8, this.reduced.matches ? 0.75 : 0.6 + 0.3 * Math.sin(time / 450))
           .fillRect(239, 101, 4, 1)
-        if (s.completed > s.room)
+        if (s.completed > s.room && s.room === 1) {
+          const elapsed = this.energyStart < 0 ? Infinity : time - this.energyStart
+          const count = this.reduced.matches ? 6 : Math.min(6, Math.floor(elapsed / 320) + 1)
+          for (let i = 0; i < count; i++)
+            this.glow.fillStyle(0xd5f8a9, 0.9).fillRect(113 + i * 60, 151, 6, 3)
+        } else if (s.completed > s.room)
           for (let i = 0; i < 5; i++)
             this.glow
-              .fillStyle(0xcaeaa4, 0.32 + 0.3 * Math.sin(time / 420 - i))
+              .fillStyle(0xcaeaa4, this.reduced.matches ? 0.5 : 0.32 + 0.3 * Math.sin(time / 420 - i))
               .fillRect(65 + i * 72, 219, 10, 1)
       }
     }
@@ -318,5 +337,5 @@ export function bootWorld(
     scene: Station,
     scale: { mode: Phaser.Scale.FIT, autoCenter: Phaser.Scale.CENTER_BOTH },
   })
-  return { refresh: () => sc?.refresh(), game }
+  return { refresh: () => sc?.refresh(), restoreEnergy: () => sc?.restoreEnergy(), game }
 }
