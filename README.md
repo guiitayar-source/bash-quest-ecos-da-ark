@@ -1,6 +1,6 @@
 # Bash Quest — Ecos da ARK
 
-RPG de exploração em português brasileiro para computador com teclado. Depois do Colapso, Lara resgata você nas encostas do refúgio ARK. Crie um personagem e converse com Lara e Noah antes de explorar. A campanha acompanha a recuperação de sete setores da estação. O último desafio é escrever um script que identifica fragmentos legíveis, recupera suas mensagens e gera um relatório.
+RPG de exploração em português brasileiro para computador com teclado. Depois do Colapso, Lara resgata você nas encostas do refúgio ARK. Crie um personagem e converse com Lara e Noah antes de explorar. A campanha acompanha a recuperação de doze setores da estação em progressão espiral — cada setor combina comandos anteriores com novos conceitos. O último desafio é escrever um script que identifica fragmentos legíveis, recupera suas mensagens e gera um relatório.
 
 ## Jogar no Linux
 
@@ -23,7 +23,7 @@ Também é possível clicar no piso e no botão de interação. A rota da campan
 
 Cada personagem tem uma partida separada no banco IndexedDB do navegador. O jogo salva posição, arquivos, rascunhos, conversas e missões automaticamente. Abra **Menu → Salvar partida** para gravar na hora ou **Carregar partida** para escolher um personagem. Se houver uma partida anterior, ela aparece como **Campanha original**. Use o mesmo navegador, perfil e endereço para retomar a partida. Se um comando apagar um arquivo necessário, abra **Controles do jogo → Restaurar arquivos deste setor**.
 
-A estação usa um sistema de arquivos virtual. O terminal aceita os comandos do manual, variáveis, aspas, glob simples com asterisco, redirecionamento, scripts, condição com `-s` e laço `for … in`. O terminal e o editor operam sobre o mesmo disco virtual. O comando `bash arquivo.sh` executa o subconjunto ensinado na campanha. A verificação final também executa a rotina com arquivos de teste em uma cópia isolada do estado.
+A estação usa um sistema de arquivos virtual. O terminal aceita os comandos do manual (`pwd`, `ls`, `cat`, `cd`, `mkdir`, `cp`, `mv`, `rm`, `grep`, `echo`, `sort`, `wc`, `head`, `tail`, `find`, `uniq`, `chmod`), pipes (`|`), variáveis e parâmetros (`$1`), aspas, glob com asterisco (`*`), redirecionamento (`>`, `>>`), scripts executáveis (`bash` e `./`), condições (`if`/`elif`/`else` com `-s`, `-f`, `-d`) e laço `for … in`. O terminal e o editor operam sobre o mesmo disco virtual. A verificação final também executa cada rotina com arquivos de teste em uma cópia isolada do estado.
 
 ## Desenvolvimento e verificação
 

@@ -75,6 +75,17 @@ def door(x,y,on):
     else:
         for i in range(5):box(x+7,y+7+i*4,25,1,'#283b41')
     box(x+11,y-4,17,2,'#b8ee94' if on else '#cf934e');stripes(x,y+29,37,3)
+def corridor_door(cx,y,on):
+    x=cx-12
+    cham(x-2,y-3,28,35,4,'#18242d');cham(x-1,y-3,26,31,3,'#82918a');cham(x,y-1,24,29,3,'#33444d')
+    cham(x+2,y+1,20,26,2,'#152835')
+    if not on:
+        for i in range(2):
+            a=x+2+i*10;box(a,y+2,9,24,'#5a686d');box(a+1,y+3,7,2,'#738181')
+            box(a+2,y+16,4,3,'#aa8560')
+    else:
+        for i in range(4):box(x+4,y+7+i*4,16,1,'#283b41')
+    box(x+6,y-3,12,2,'#b8ee94' if on else '#cf934e');stripes(x,y+28,24,3)
 def bank(x,y,w=45):
     panel(x,y,w,36,'#506174')
     for k in range(3):
@@ -154,8 +165,8 @@ def paint_room(n,on):
     for x in [64,315,384]:
         panel(x,53,24,5,'#54626a');box(x+3,54,18,2,'#d0dbc0' if on or x==64 else '#a18c62')
     if n==-1:
-        for i in range(7):
-            px=70+i*56;door(px-18,96,i<=on);label(px-6,83,'0'+str(i+1),'#b1c4b9')
+        for i in range(12):
+            px=64+i*32;corridor_door(px,97,i<=on);label(px-5,83,f'{i+1:02d}','#b1c4b9')
         crate(54,174);bank(370,171,43)
     else:
         if n==0:bed(57,110);bed(56,151)
@@ -163,8 +174,20 @@ def paint_room(n,on):
         elif n==2:bank(55,112,64);bank(55,154,64)
         elif n==3:
             machine(55,109,n);console(55,165,65);tube(71,70,96,70)
-        elif n==4:console(57,123,63);crate(60,161,39);crate(103,166,23)
-        elif n==5:bed(54,109);machine(56,151,n)
+        elif n==4:
+            crate(56,112,34);crate(92,115,26);crate(58,136,30);crate(90,141,28);crate(56,164,38);crate(96,166,24)
+        elif n==5:
+            bank(55,108,64);machine(56,151,0);tube(60,147,116,147,3)
+        elif n==6:
+            tube(56,116,120,116,7);tube(56,138,120,138,7);tube(56,164,120,164,7)
+            panel(74,110,22,64,'#4a5c64');grate(78,118,14,48)
+        elif n==7:console(57,123,63);crate(60,161,39);crate(103,166,23)
+        elif n==8:
+            console(56,122,64);bank(56,153,64)
+        elif n==9:bed(54,109);machine(56,151,n)
+        elif n==10:
+            panel(55,108,66,38,'#4d5d63');screen(61,114,24,14,True);stripes(58,138,60,4)
+            machine(56,153,n);stripes(58,187,60,3)
         else:bank(55,109,62);bank(55,153,64)
         # Rear medical diagnostics, radio racks, monitors and right airlock.
         panel(56,65,46,26,'#566875');screen(61,70,20,12,True);grate(86,68,11,18)
@@ -176,7 +199,7 @@ def paint_room(n,on):
         # Cable from terminal to wall, floor direction stencil.
         line([(293,129),(302,129),(309,136),(336,136),(341,131)],'#25333a',2)
         poly([(367,146),(375,146),(375,143),(380,148),(375,152),(375,150),(367,150)],'#92968a')
-        if n in [1,4,6]:crate(143,175,22)
+        if n in [1,4,7,11]:crate(143,175,22)
     if n>=0 and on:
         # Restored systems have individual, visible output on the serviced machine.
         if n==0:
@@ -191,15 +214,28 @@ def paint_room(n,on):
         elif n==3:
             for j in range(24):dot(62+j,118+int(math.sin(j*1.1)*3),'#cdfb9b')
         elif n==4:
-            panel(146,130,24,12,'#afbc9f');label(150,131,'OK','#365c49')
+            for cx,cy in [(62,119),(98,122),(64,143),(96,148),(66,171)]:
+                box(cx,cy,10,2,'#b7e9a2')
         elif n==5:
-            screen(67,155,21,12);line([(68,163),(73,163),(76,158),(79,164),(85,161)],'#ccf4b0')
+            for yy in [114,123,132]:box(64,yy,36,2,'#9ce8b6')
+            for j in range(20):dot(64+j,161+int(math.cos(j*0.8)*3),'#cdfb9b')
         elif n==6:
+            for yy in [115,137,163]:box(60,yy,54,2,'#9ad9c8')
+        elif n==7:
+            panel(146,130,24,12,'#afbc9f');label(150,131,'OK','#365c49')
+        elif n==8:
+            panel(146,128,32,12,'#afbc9f');label(149,129,'RUN','#2e5241')
+            for k in range(3):box(65,159+k*8,28,2,'#b8ee94')
+        elif n==9:
+            screen(67,155,21,12);line([(68,163),(73,163),(76,158),(79,164),(85,161)],'#ccf4b0')
+        elif n==10:
+            box(92,116,18,4,'#9fe6c8');box(92,124,18,4,'#b8ee94')
+        elif n==11:
             for yy in [114,158]:
                 for k in range(3):box(64,yy+k*8,33,2,'#add3ee')
     if n>=0:
         # Sector stencils, pipe elbows, emergency beacons, directional shadows.
-        label(161,155,'ARK / 0'+str(n+1),'#727b78')
+        label(161,155,f'ARK / {n+1:02d}','#727b78')
         box(161,164,24,1,'#606e70');box(188,164,4,1,'#878d7d')
         for x,y in [(49,106),(134,108),(338,105),(427,160)]:
             panel(x,y,6,11,'#52605e')
@@ -211,7 +247,7 @@ def paint_room(n,on):
         box(300,59,9,4,'#6a7d79');box(301,60,7,1,'#b8afa0')
         for x,y in [(210,182),(275,155),(155,130),(303,197)]:
             for j in range(3):line([(x+j*3,y),(x+j*3+3,y-2)],'#616c6c')
-        if n==0 or n==5:
+        if n==0 or n==9:
             # Curved cyan capsule glazing. Reflections follow the dome.
             for by in ([110,151] if n==0 else [109]):
                 bx=57 if by==110 else 56
@@ -228,7 +264,7 @@ def paint_room(n,on):
             for j in range(16):
                 xx=63+j;yy=115+int(math.sin(j*.9)*3)
                 dot(xx,yy,'#bcf2b6')
-        if n==6:
+        if n==11:
             for cx in (151,179):
                 panel(cx,87,21,30,'#536774')
                 cham(cx+4,89,13,21,3,'#405b6e')
@@ -256,11 +292,11 @@ def paint_room(n,on):
         pool(412,124,15,14,(10,26,12) if on else (36,15,3))
         pool(360,176,14,6,(22,13,4));pool(186,83,45,7,(5,12,23))
     else:
-        for k in range(7):pool(70+56*k,108,15,13,(9,27,14) if k<=on else (22,10,3))
+        for k in range(12):pool(64+32*k,108,11,12,(9,27,14) if k<=on else (22,10,3))
     im=ImageChops.add(im,illumination.filter(ImageFilter.GaussianBlur(6)))
     return im
-for n in range(-1,7):
-    for state in range(8 if n==-1 else 2):
+for n in range(-1,12):
+    for state in range(13 if n==-1 else 2):
         paint_room(n,state).save(OUT/f'room-{n}-{state}.png')
 # Pixel crew member and walking frames. Shadow is drawn in the game.
 rows=['.......kkkkkk.......','.....kkbbbbbbkk.....','....kbaaaaaaaabk....','...kbaaaacccaaabk...','...kbaaccccccaabk...','..kbbbdvvvvvvdbbbk..','..kabvhhhiiivvdbak..','..kabviiijjjvvdbak..','...kbdiiijjvvvdbk...','...kbbdvvvvvvdbbk...','....kbbdccccdbbk....','.....kkbaaabbkk.....','....kbbaaddaabbk....','...kabbeeddfeebak...','...kabeedffdeebak...','...kbbkdeeedkbbbk...','...kcckdeeedkccck...','....kkkecccekkk.....','......keekkeek......','......kebkkbek......','......kbbkkbbk......','.....kccckkccck.....','.....kkkkkkkkkk.....']

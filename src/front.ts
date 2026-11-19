@@ -114,7 +114,9 @@ export function frontMarkup(
                     safe(location) +
                     ' · ' +
                     entry.state.completed +
-                    '/7 setores' +
+                    '/' +
+                    chapters.length +
+                    ' setores' +
                     (diffLabel ? ' · ' + safe(diffLabel) : '') +
                     '</small></span><time>' +
                     date +

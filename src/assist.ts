@@ -1,5 +1,20 @@
-import { chapters, type Save } from './campaign'
+import { chapters, FINAL_CHAPTER, TOTAL_CHAPTERS, type Save } from './campaign'
 import { path, parent } from './shell'
+
+const NON_CMD_TOPICS = new Set([
+  '..',
+  '>',
+  '>>',
+  '|',
+  'variáveis',
+  '-s',
+  '-f',
+  '-d',
+  '*',
+  '$1',
+  './',
+  'elif',
+])
 
 export function operatorRank(completed: number): string {
   return (
@@ -9,10 +24,15 @@ export function operatorRank(completed: number): string {
       'Técnico de Linha',
       'Arquivista de Campo',
       'Operador de Rádio',
+      'Curador de Inventário',
+      'Analista de Sensores',
+      'Cartógrafo de Dutos',
       'Engenheiro de Turno',
-      'Analista de Núcleo',
+      'Especialista de Controle',
+      'Inspetor de Triagem',
+      'Guardião de Quarentena',
       'Guardião da ARK',
-    ][Math.min(7, Math.max(0, completed))] ?? 'Operador'
+    ][Math.min(TOTAL_CHAPTERS, Math.max(0, completed))] ?? 'Operador'
   )
 }
 
@@ -63,20 +83,25 @@ export function bashLint(source: string): string[] {
         `Linha ${idx + 1}: deixe um espaço após "[" e antes de "]" no teste (ex.: [ -s "$arquivo" ]).`,
       )
     }
-    if (/^if\s+/.test(line) && !/;\s*then\b/.test(line)) {
+    if (/^(if|elif)\s+/.test(line) && !/;\s*then\b/.test(line)) {
       const next = lines[idx + 1]?.trim() ?? ''
       if (next !== 'then') {
-        warnings.push(`Linha ${idx + 1}: o bloco "if" precisa de "; then" (ou "then" na linha seguinte).`)
+        const kw = line.startsWith('elif') ? 'elif' : 'if'
+        warnings.push(
+          `Linha ${idx + 1}: o bloco "${kw}" precisa de "; then" (ou "then" na linha seguinte).`,
+        )
       }
     }
     if (/^if\b/.test(line)) ifCount++
     if (/^fi\b/.test(line) || /;\s*fi\b/.test(line)) fiCount++
     if (/^for\b/.test(line)) forCount++
     if (/^done\b/.test(line) || /;\s*done\b/.test(line)) doneCount++
-    const unquotedVar = /(^|[^"\\'])\$[A-Za-z_]\w*/.test(line) && !/=/.test(line.split(/\s+/)[0] || '')
+    const unquotedVar =
+      /(^|[^"\\'])\$([A-Za-z_]\w*|\d)/.test(line) &&
+      !/=/.test(line.split(/\s+/)[0] || '')
     if (unquotedVar && !/^\s*#/.test(line)) {
       warnings.push(
-        `Linha ${idx + 1}: envolva a variável com aspas ("$nome") para não quebrar em arquivos com espaço.`,
+        `Linha ${idx + 1}: envolva a variável com aspas ("$nome" ou "$1") para não quebrar em arquivos com espaço.`,
       )
     }
   }
@@ -119,26 +144,26 @@ export function completeCommand(
   const activeQuote = hasQuote ? token[0] : ''
   const clean = hasQuote ? token.slice(1) : token
 
-  const isFirstToken = before.trim() === ''
+  const isFirstToken = before.trim() === '' || /\|\s*$/.test(before)
   if (isFirstToken && !clean.includes('/') && !clean.startsWith('.')) {
     const pool = Array.from(
       new Set([
         'clear',
         'help',
-        ...s.library.filter((t) => !['..', '>', '>>', 'variáveis', '-s', '*'].includes(t)),
-        ...chapters[Math.min(s.completed, 6)].tools.filter(
-          (t) => !['..', '>', '>>', 'variáveis', '-s', '*'].includes(t),
+        ...s.library.filter((t) => !NON_CMD_TOPICS.has(t)),
+        ...chapters[Math.min(s.completed, FINAL_CHAPTER)].tools.filter(
+          (t) => !NON_CMD_TOPICS.has(t),
         ),
       ]),
     ).sort()
     const matches = pool.filter((c) => c.startsWith(clean))
     if (!matches.length) return { value: raw, options: [] }
     if (matches.length === 1) {
-      return { value: matches[0] + ' ', options: [] }
+      return { value: before + matches[0] + ' ', options: [] }
     }
     const prefix = commonPrefix(matches)
     return {
-      value: prefix.length > clean.length ? prefix : raw,
+      value: prefix.length > clean.length ? before + prefix : raw,
       options: matches,
     }
   }
@@ -173,7 +198,9 @@ export function completeCommand(
   if (prefix.length > namePart.length) {
     const next = dirPart + prefix
     return {
-      value: before + (hasQuote ? activeQuote + next : next.includes(' ') ? '"' + next : next),
+      value:
+        before +
+        (hasQuote ? activeQuote + next : next.includes(' ') ? '"' + next : next),
       options: entries.map((e) => e.name + (e.isDir ? '/' : '')),
     }
   }

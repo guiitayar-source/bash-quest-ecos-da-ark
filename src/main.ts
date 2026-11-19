@@ -47,9 +47,17 @@ import {
   Search,
   Play,
   PanelRight,
+  Package,
+  GitBranch,
+  SlidersHorizontal,
+  ShieldCheck,
 } from 'lucide'
 import {
   chapters,
+  TOTAL_CHAPTERS,
+  FINAL_CHAPTER,
+  isScriptChapter,
+  defaultRunCommand,
   fresh,
   mark,
   record,
@@ -111,6 +119,10 @@ const icons = {
   Search,
   Play,
   PanelRight,
+  Package,
+  GitBranch,
+  SlidersHorizontal,
+  ShieldCheck,
 }
 const icon = (name: keyof typeof icons, size = 18) =>
   createElement(icons[name], {
@@ -124,8 +136,13 @@ const sectorIcons: (keyof typeof icons)[] = [
   'Zap',
   'Boxes',
   'SatelliteDish',
+  'Package',
+  'Activity',
+  'GitBranch',
   'Wrench',
+  'SlidersHorizontal',
   'FlaskConical',
+  'ShieldCheck',
   'Cpu',
 ]
 const esc = (s: string) =>
@@ -154,7 +171,7 @@ let modal = '',
   history: string[] = [],
   historyPos = 0,
   frame: ReturnType<typeof bootWorld> | undefined
-const current = () => Math.min(s.completed, 6)
+const current = () => Math.min(s.completed, FINAL_CHAPTER)
 const note = (text: string) => {
   if (!s.notes.includes(text)) s.notes.push(text)
 }
@@ -276,7 +293,7 @@ function loadSlot(slot: Slot) {
   if ((resume === 'terminal' || resume === 'editor') && s.room >= 0) {
     heldTerminal = true
     show(resume)
-  } else if (s.completed === 7 && !s.endsSeen) show('credits')
+  } else if (s.completed === TOTAL_CHAPTERS && !s.endsSeen) show('credits')
 }
 front.addEventListener('submit', async (event) => {
   const form = event.target as HTMLFormElement
@@ -358,7 +375,7 @@ function syncInteraction() {
 function render() {
   const n = current(),
     c = chapters[n],
-    finished = s.completed === 7,
+    finished = s.completed === TOTAL_CHAPTERS,
     g = goals(s, n),
     practice = activePractice(s, n),
     opening = openingObjective()
@@ -377,7 +394,7 @@ function render() {
     '<span class="signal-bars"><i></i><i></i><i></i><i></i></span> ' +
     (finished
       ? 'CAMPANHA CONCLUÍDA'
-      : 'CAPÍTULO ' + pad(n + 1) + ' <b>/ 07</b>')
+      : 'CAPÍTULO ' + pad(n + 1) + ' <b>/ ' + pad(TOTAL_CHAPTERS) + '</b>')
   $('#cam').textContent =
     'CAM ' +
     (s.room === -1 ? 'HUB' : pad(s.room + 1)) +
@@ -435,10 +452,12 @@ function render() {
       ? '<div class="op-profile">' + esc(diffMeta.name) + '</div>'
       : '') +
     '<div class="xp"><i style="width:' +
-    (s.completed / 7) * 100 +
+    (s.completed / TOTAL_CHAPTERS) * 100 +
     '%"></i></div><small>' +
     s.completed * 100 +
-    ' XP <span>/ 700 XP</span></small></div>'
+    ' XP <span>/ ' +
+    TOTAL_CHAPTERS * 100 +
+    ' XP</span></small></div>'
   const lesson = s.room < 0 ? n : s.room
   $('#toolbox').innerHTML =
     '<span class="cap">' +
@@ -449,7 +468,8 @@ function render() {
       .map((tool) => button('topic:' + tool, esc(tool)))
       .join('') +
     '</div>'
-  $('#route-count').textContent = s.completed + ' de 7 setores restaurados'
+  $('#route-count').textContent =
+    s.completed + ' de ' + TOTAL_CHAPTERS + ' setores restaurados'
   $('#route').innerHTML = chapters
     .map((c, i) =>
       button(
@@ -524,7 +544,7 @@ function close() {
   terminalInput = ''
   save()
   render()
-  if (s.completed === 7 && !s.endsSeen) {
+  if (s.completed === TOTAL_CHAPTERS && !s.endsSeen) {
     show('credits')
     return
   }
@@ -586,14 +606,19 @@ function show(type: string) {
       'A etiqueta da máquina indica um circuito. Use <code>ls</code> para localizar a pasta dos registros. <code>cd</code> muda de pasta e <code>cd ..</code> volta à pasta acima. Depois de achar o registro, você já sabe como ler.',
       'Precisamos juntar as fichas sem perder os originais. <code>mkdir</code> cria uma pasta. <code>cp</code> deixa uma cópia no destino e conserva a origem. A rota, porém, está no lugar errado. Use <code>mv</code> para tirá-la de lá e colocá-la na navegação.',
       'O receptor gravou cada chiado. <code>grep SOS sinais.log</code> imprime só as linhas com SOS. O sinal pode ir direto para <code>contato.txt</code>. O <code>&gt;</code> cria o arquivo ou substitui o conteúdo dele. Depois, <code>echo</code> produz a linha de confirmação e <code>&gt;&gt;</code> a acrescenta ao mesmo arquivo.',
+      'O depósito acumula dezenas de arquivos. Use o curinga <code>*</code> com <code>cp</code> e <code>cat</code> para operar lotes de uma vez, e <code>rm</code> para descartar apenas os arquivos temporários <code>.tmp</code>.',
+      'Conecte comandos com o pipe <code>|</code>: filtre com <code>grep</code>, ordene com <code>sort</code>, recorte o topo ou o fim com <code>head</code>/<code>tail</code> e conte linhas com <code>wc -l</code>.',
+      'Para encontrar arquivos escondidos em subpastas profundas, use <code>find setores -name "*.val"</code>. Combine <code>grep</code>, <code>sort</code> e <code>uniq</code> com pipes para eliminar linhas repetidas.',
       'Você montou o boletim à mão e testou variáveis. Agora a estação pode repetir o procedimento: salve os comandos no editor, um por linha. <code>bash rotina.sh</code> lê e executa essas instruções em ordem.',
+      'Transforme seu fluxo em uma ferramenta que aceita qualquer arquivo via <code>"$1"</code>. Depois de salvar <code>resumo.sh</code>, dê permissão com <code>chmod +x resumo.sh</code> e rode <code>./resumo.sh diurno.log</code>.',
       'Você já testou cápsulas com <code>[ -s arquivo ]</code>. O <code>if</code> usa o resultado desse teste para escolher entre dois caminhos. Use <code>echo</code> com <code>&gt;</code> para gravar o estado escolhido.',
+      'Classifique qualquer caminho recebido em <code>"$1"</code> encadeando <code>if</code>, <code>elif</code> e <code>else</code> com <code>-d</code> (pasta), <code>-s</code> (arquivo com conteúdo) e <code>-f</code> (arquivo vazio).',
       'Você já percorreu os fragmentos com <code>for</code> e <code>*.frag</code>. Agora reúna tudo: zere <code>memoria.txt</code> e <code>relatorio.txt</code> no início, teste cada arquivo com <code>if [ -s "$arquivo" ]</code> e acrescente conteúdo e caminho com <code>&gt;&gt;</code>.',
     ]
     const localPractice = activePractice(s, s.room)
     const voice =
       localPractice?.voice ??
-      (s.room === 0 ? 'NOAH' : s.room % 2 ? 'IARA' : 'NOAH')
+      ([3, 5, 9, 10, 11].includes(s.room) ? 'LARA' : 'NOAH')
     const onboarding =
       '<div class="transmission">' +
       esc(diff === 'dev' ? 'MODO DEV · ESPECIFICAÇÃO' : voice.toUpperCase()) +
@@ -934,7 +959,7 @@ function show(type: string) {
       'MEMÓRIA DO OPERADOR',
       '<h3>Missão atual</h3><p>' +
         esc(
-          s.completed === 7
+          s.completed === TOTAL_CHAPTERS
             ? c.restored
             : practice
               ? practice.title + ' — ' + practice.brief
@@ -1040,7 +1065,7 @@ function show(type: string) {
         '</div><p>' +
         esc(chapters[i].restored) +
         '</p><p>' +
-        (s.completed === 7
+        (s.completed === TOTAL_CHAPTERS
           ? 'O arquivo pode ser lido junto às caixas do núcleo.'
           : 'Siga até a eclusa à direita e entre no corredor. A porta ' +
             pad(s.completed + 1) +
@@ -1065,7 +1090,7 @@ function show(type: string) {
       'CAMPANHA CONCLUÍDA',
       '<div class="successbadge">' +
         icon('Cpu', 40) +
-        '</div><p>O silêncio dá lugar às vozes de Lara e Noah. Sete setores voltaram à vida, e o próximo turno encontrará a estação acesa.</p>' +
+        '</div><p>O silêncio dá lugar às vozes de Lara e Noah. Doze setores voltaram à vida, e o próximo turno encontrará a estação acesa.</p>' +
         '<p class="entry"><b>' +
         esc(operatorRank(s.completed)) +
         '</b> · Perfil ' +
@@ -1213,19 +1238,29 @@ function execute(overrideLine?: string) {
   const r = run(s, line)
   s.log.push('ark:' + prompt + ' $ ' + line)
   if (r.out) s.log.push(r.out.trimEnd())
-  const lastCmd = r.trace.at(-1)?.cmd
-  const isSizeTest = !r.error && (lastCmd === '[' || lastCmd === 'test')
+  const lastTrace = r.trace.at(-1)
+  const lastCmd = lastTrace?.cmd
+  const isTestCmd = !r.error && (lastCmd === '[' || lastCmd === 'test')
   const failure =
     r.error ||
-    (r.status && !isSizeTest
+    (r.status && !isTestCmd
       ? lastCmd === 'grep'
         ? 'O grep não encontrou nenhuma linha correspondente.'
         : 'O comando terminou com status ' + r.status + '.'
       : '')
-  if (isSizeTest) {
-    const okLabel = r.status === 0
-      ? 'Teste [ -s ]: verdadeiro (status 0 — arquivo tem conteúdo).'
-      : 'Teste [ -s ]: falso (status 1 — arquivo vazio ou ausente).'
+  if (isTestCmd) {
+    const flag = lastTrace?.args[0] || '-s'
+    const descMap: Record<string, [string, string]> = {
+      '-s': ['arquivo tem conteúdo', 'arquivo vazio ou ausente'],
+      '-f': ['é um arquivo comum', 'não é arquivo comum'],
+      '-d': ['é uma pasta existente', 'não é pasta'],
+      '-e': ['caminho existe', 'caminho ausente'],
+    }
+    const [okDesc, failDesc] = descMap[flag] ?? ['condição satisfeita', 'condição falsa']
+    const okLabel =
+      r.status === 0
+        ? `Teste [ ${flag} ]: verdadeiro (status 0 — ${okDesc}).`
+        : `Teste [ ${flag} ]: falso (status 1 — ${failDesc}).`
     s.log.push('→ ' + okLabel)
     commandFeedback = { ok: true, text: okLabel }
   } else {
@@ -1239,11 +1274,11 @@ function execute(overrideLine?: string) {
   if (practiced)
     commandFeedback = { ok: true, text: 'Tarefa concluída. ' + practiced + '.' }
   if (
-    s.room >= 4 &&
+    isScriptChapter(s.room) &&
     s.room === s.completed &&
     !activePractice(s) &&
     !r.error &&
-    r.trace.some((t) => t.cmd === 'bash')
+    r.trace.some((t) => t.cmd === 'bash' || t.cmd.includes('/'))
   ) {
     const checks = goals(s, s.room)
     if (!checks.every(Boolean)) {
@@ -1315,7 +1350,7 @@ function interact(p?: Spot) {
     show('relay')
   } else if (p.kind === 'machine' || p.kind === 'log') {
     notice =
-      p.kind === 'log' && s.room === 6 && s.completed === 7
+      p.kind === 'log' && s.room === FINAL_CHAPTER && s.completed === TOTAL_CHAPTERS
         ? String(s.disk['/ark/memoria/memoria.txt'])
         : p.kind === 'log'
           ? chapters[s.room].lore
@@ -1324,8 +1359,13 @@ function interact(p?: Spot) {
               '',
               'Os armários têm etiquetas de origem e destino. Consulte as pastas com ls.',
               'A antena ainda recebe ruído e transmissões no mesmo registro.',
+              'As caixas misturam registros .txt com arquivos temporários .tmp. Use * e rm com critério.',
+              'O visor dos sensores transmite dezenas de leituras. Pipes (|) filtram e ordenam sem sujeira.',
+              'Os dutos se ramificam em vários níveis. find alcança todas as subpastas.',
               'A bancada permite escrever várias linhas na aba Editor de script.',
+              'O painel aceita ferramentas executáveis com chmod +x e parâmetros em "$1".',
               'O sensor diferencia arquivos pelo tamanho.',
+              'A câmara de quarentena classifica pastas (-d), arquivos válidos (-s), vazios (-f) e ausentes.',
               'A matriz aguarda as mensagens e o relatório de caminhos.',
             ][s.room]
     note(chapters[s.room].short + ' · ' + notice)
@@ -1469,8 +1509,7 @@ async function action(act: string) {
       save()
       render()
       if (act === 'saveandrun') {
-        const quoted = fileName.includes(' ') ? '"' + fileName + '"' : fileName
-        execute('bash ' + quoted)
+        execute(defaultRunCommand(s, s.room, fileName))
       } else {
         show('terminal')
         toast('Arquivo salvo: ' + fileName)

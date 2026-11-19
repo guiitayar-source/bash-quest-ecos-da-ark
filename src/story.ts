@@ -96,16 +96,58 @@ const sectorDialogues: Record<
       line: 'A tempestade lá fora joga estática pura na antena, mas entre um ruído e outro ainda passa código humano. Só precisamos filtrar o sinal real e responder.',
       lorePrompt: 'Você já ouviu essa voz da oficina antes?',
       loreLine:
-        'Três batidas no microfone era o sinal de turno do nosso antigo engenheiro de manutenção. Quero confirmar se é gravação automática ou alguém vivo no setor 5.',
+        'Três batidas no microfone era o sinal de turno do nosso antigo engenheiro de manutenção. Quero confirmar se é gravação automática ou alguém vivo lá dentro.',
     },
     restored: {
-      line: 'Ouviu isso? A portadora estabilizou e o retorno veio direto da Oficina de manutenção. Não estamos só nós três mantendo essas paredes de pé.',
-      extraPrompt: 'O que acontece quando chegarmos à Oficina?',
+      line: 'Ouviu isso? A portadora estabilizou e o retorno veio da ala técnica. Antes de alcançarmos a Oficina, precisamos liberar energia reserva no Depósito de suprimentos.',
+      extraPrompt: 'O que encontramos no Depósito?',
       extraLine:
-        'Noah comentou que os relatórios de turno lá são copiados à mão toda madrugada. Se automatizarmos isso, sobra fôlego para alcançar o Núcleo.',
+        'Lotes de baterias e filtros misturados com arquivos temporários corrompidos. Lá você vai precisar operar vários arquivos de uma vez.',
     },
   },
   4: {
+    active: {
+      line: 'O Depósito acumulou lixo temporário junto das fichas de bateria. Copiar um por um levaria horas — use o curinga * para mover lotes inteiros e rm para descartar os .tmp corrompidos.',
+      lorePrompt: 'Não é perigoso apagar arquivos com rm?',
+      loreLine:
+        'Por isso a regra de ouro aqui na ARK é testar o padrão com ls antes de rodar rm. Se der qualquer tropeço, o sistema de backup local restaura o setor.',
+    },
+    restored: {
+      line: 'As pilhas boas estão catalogadas e o lixo saiu do caminho. A Sala de telemetria acabou de ligar o painel de sensores.',
+      extraPrompt: 'Por que a Telemetria é o próximo passo?',
+      extraLine:
+        'Os sensores despejam dezenas de linhas fora de ordem. Lara precisa filtrar, ordenar e contar os alertas críticos.',
+    },
+  },
+  5: {
+    active: {
+      line: 'Os sensores externos acordaram todos de uma vez e jogaram tudo no mesmo registro. Conectando comandos com o pipe |, dá para filtrar, ordenar e contar sem encher a pasta de arquivos temporários.',
+      lorePrompt: 'De onde vêm esses sensores?',
+      loreLine:
+        'Das torres de ventilação na encosta. Se a pressão cai lá fora, significa que algum duto da estação está deixando entrar poeira.',
+    },
+    restored: {
+      line: 'Os alertas prioritários estão na mesa e já sabemos quantos pontos falharam. O mapa aponta direto para a Galeria de dutos.',
+      extraPrompt: 'O que tem na Galeria de dutos?',
+      extraLine:
+        'Subpastas dentro de subpastas de válvulas e um histórico cheio de códigos repetidos. Vamos precisar de busca profunda com find e limpeza com uniq.',
+    },
+  },
+  6: {
+    active: {
+      line: 'Os dutos se ramificam em vários níveis de subpastas. O curinga * só enxerga um andar, mas find percorre toda a árvore e uniq tira os códigos duplicados depois de sort.',
+      lorePrompt: 'Por que existem tantos ramais no subsolo?',
+      loreLine:
+        'A ARK foi cavada aproveitando túneis de resfriamento antigos. Sem o mapa certo, ninguém sabe qual válvula isola o ar da oficina.',
+    },
+    restored: {
+      line: 'Todas as válvulas foram mapeadas e o ar voltou a circular limpo. Finalmente temos acesso seguro à Oficina de manutenção.',
+      extraPrompt: 'O que nos espera na Oficina?',
+      extraLine:
+        'Lá os turnos ainda são copiados à mão toda madrugada. Chegou a hora de dar o próximo salto: transformar comandos em scripts reutilizáveis.',
+    },
+  },
+  7: {
     active: {
       line: 'Toda madrugada eu copiava o turno anterior linha por linha para não perder o histórico quando a energia oscilava. Chegou a hora de ensinar o terminal a fazer isso sozinho.',
       lorePrompt: 'Por que criar um script em vez de digitar tudo de novo?',
@@ -113,13 +155,27 @@ const sectorDialogues: Record<
         'Um comando digitado resolve hoje. Um arquivo .sh documenta o processo para qualquer pessoa da estação repetir amanhã sem errar uma vírgula.',
     },
     restored: {
-      line: 'O boletim rodou limpo e pode ser repetido quantas vezes precisarmos. Pela primeira vez em meses, dá para confiar que o turno de amanhã não vai se perder.',
-      extraPrompt: 'O que há além da Oficina?',
+      line: 'O boletim rodou limpo e pode ser repetido quantas vezes precisarmos. Agora a Estação de controle quer uma ferramenta que funcione com qualquer log.',
+      extraPrompt: 'Qual a diferença da Estação de controle?',
       extraLine:
-        'O Laboratório de triagem. Lara trouxe cápsulas de memória da encosta, mas metade delas apagou na poeira estática.',
+        'Em vez de um arquivo fixo, seu script vai aceitar um parâmetro "$1" e virar um comando executável com chmod +x e ./',
     },
   },
-  5: {
+  8: {
+    active: {
+      line: 'Aqui chegam logs de turnos diferentes o dia todo. Se o script receber o arquivo em "$1" e tiver permissão +x, qualquer operador roda ./resumo.sh passando o log do momento.',
+      lorePrompt: 'Por que usar ./ na frente do nome do script?',
+      loreLine:
+        'Por segurança, o sistema não executa arquivos soltos da pasta atual por acidente. O ./ deixa claro que você quer rodar o programa daqui mesmo.',
+    },
+    restored: {
+      line: 'Nosso primeiro utilitário próprio está no ar! Agora o Laboratório de triagem recebeu a credencial para processar as cápsulas que Lara recolheu.',
+      extraPrompt: 'O que há no Laboratório de triagem?',
+      extraLine:
+        'Cápsulas de memória trazidas da encosta. Metade delas apagou na poeira estática — seu script vai precisar tomar decisões com if.',
+    },
+  },
+  9: {
     active: {
       line: 'Trouxe essas cápsulas das torres soterradas. Por fora são idênticas, mas algumas guardam mensagens inteiras e outras têm zero bytes. Precisamos separar sinal de silêncio.',
       lorePrompt: 'Por que não abrir todas uma por uma?',
@@ -127,13 +183,27 @@ const sectorDialogues: Record<
         'No laboratório há dezenas esperando na fila do núcleo. Sem uma triagem automática que teste o tamanho do arquivo, perderíamos dias lendo cápsulas vazias.',
     },
     restored: {
-      line: 'Seu filtro diferenciou cada cápsula sem hesitar. O Núcleo de memória finalmente reconheceu a credencial da triagem e abriu a última comporta.',
-      extraPrompt: 'O que nos espera no Núcleo?',
+      line: 'Seu filtro diferenciou cada cápsula sem hesitar. Antes do Núcleo, falta passar pela Câmara de quarentena para validar qualquer tipo de caminho.',
+      extraPrompt: 'O que a Câmara de quarentena verifica?',
       extraLine:
-        'Todos os fragmentos que conseguimos salvar do Colapso. Escreva uma rotina que resista a nomes estranhos, arquivos vazios e novas levas de fragmentos.',
+        'Lá entram pastas inteiras, arquivos válidos, arquivos vazios e caminhos quebrados. Vamos combinar -d, -s, -f e elif num único protocolo.',
     },
   },
-  6: {
+  10: {
+    active: {
+      line: 'A quarentena é a última barreira antes do Núcleo. Um único if/else não basta: precisamos classificar pastas (-d), arquivos com conteúdo (-s), arquivos vazios (-f) e caminhos ausentes usando elif.',
+      lorePrompt: 'Por que testar -s antes de -f?',
+      loreLine:
+        'Porque todo arquivo com conteúdo também é um arquivo comum. Se você testar -f primeiro, ele captura tudo e nunca chega no ramo -s.',
+    },
+    restored: {
+      line: 'Protocolo de segurança validado nos quatro cenários! A comporta blindada do Núcleo de memória acabou de destravar.',
+      extraPrompt: 'O que nos espera no Núcleo?',
+      extraLine:
+        'Todos os fragmentos que conseguimos salvar do Colapso. Vamos unir tudo o que você aprendeu num laço for para devolver a memória à ARK.',
+    },
+  },
+  11: {
     active: {
       line: 'Chegamos ao coração da ARK. Os fragmentos estão espalhados na pasta do núcleo — alguns com conteúdo, outros vazios, alguns com espaços no nome. O sistema precisa recuperar só o que sobreviveu.',
       lorePrompt: 'O que significa recuperar a memória da ARK?',
@@ -144,7 +214,7 @@ const sectorDialogues: Record<
       line: 'Funcionou. Cada fragmento legível foi reunido em ordem e catalogado no relatório. A ARK voltou a lembrar quem passou por aqui.',
       extraPrompt: 'E agora, para onde a estação vai?',
       extraLine:
-        'Com energia, rádio e memória operantes, a torre volta a ser farol na superfície. O próximo turno já vai encontrar a casa acesa.',
+        'Com todos os doze setores operantes — da energia ao núcleo — a torre volta a ser farol na superfície. O próximo turno já vai encontrar a casa acesa.',
     },
   },
 }

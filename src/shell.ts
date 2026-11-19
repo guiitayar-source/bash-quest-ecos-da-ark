@@ -4,6 +4,7 @@ export interface Session {
   disk: Disk
   cwd: string
   vars: Record<string, string>
+  execs?: string[]
 }
 export interface Trace {
   cmd: string
@@ -29,10 +30,11 @@ export function path(cwd: string, raw: string): string {
 }
 export const parent = (p: string) => path(p, '..')
 const base = (p: string) => p.split('/').pop() || '/'
+const cmpC = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0)
 const children = (s: Session, p: string) =>
   Object.keys(s.disk)
     .filter((k) => k !== '/' && parent(k) === p)
-    .sort()
+    .sort(cmpC)
 const dir = (s: Session, p: string) =>
   s.disk[p] === null || fail('Pasta não encontrada: ' + p)
 function read(s: Session, p: string): string {
@@ -49,6 +51,67 @@ export function write(s: Session, p: string, v: string) {
       'O arquivo ultrapassou o espaço de trabalho do terminal (128 mil caracteres).',
     )
   s.disk[p] = v
+}
+function splitLines(text: string): string[] {
+  if (!text) return []
+  const lines = text.split('\n')
+  if (lines.at(-1) === '') lines.pop()
+  return lines
+}
+function globRegex(pattern: string): RegExp {
+  let out = '^'
+  for (const ch of pattern) {
+    if (ch === '*') out += '.*'
+    else if (ch === '?') out += '.'
+    else out += ch.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  }
+  return new RegExp(out + '$')
+}
+
+function splitPipeline(line: string): string[] {
+  const stages: string[] = []
+  let buf = '',
+    quote = '',
+    escaped = false
+  for (let i = 0; i < line.length; i++) {
+    const c = line[i]
+    if (escaped) {
+      buf += c
+      escaped = false
+      continue
+    }
+    if (c === '\\' && quote !== "'") {
+      buf += c
+      escaped = true
+      continue
+    }
+    if (!quote && c === '#' && (!buf || /\s$/.test(buf))) break
+    if (c === quote) {
+      quote = ''
+      buf += c
+      continue
+    }
+    if (!quote && (c === '"' || c === "'")) {
+      quote = c
+      buf += c
+      continue
+    }
+    if (!quote && c === '|') {
+      if (line[i + 1] === '|')
+        fail('Este operador está fora do terminal didático: ||')
+      if (!buf.trim())
+        fail('Indique um comando antes e depois do pipe (|).')
+      stages.push(buf.trim())
+      buf = ''
+      continue
+    }
+    buf += c
+  }
+  if (quote) fail('Feche as aspas antes de executar.')
+  if (stages.length && !buf.trim())
+    fail('Indique um comando antes e depois do pipe (|).')
+  if (buf.trim()) stages.push(buf.trim())
+  return stages
 }
 
 type Token = {
@@ -90,7 +153,7 @@ function words(line: string, s: Session): Token[] {
       })
       continue
     }
-    if (!quote && /[|<&`]/.test(c))
+    if (!quote && /[<&`]/.test(c))
       fail('Este operador está fora do terminal didático: ' + c)
     if (c === '"' || c === "'") {
       if (!quote) {
@@ -116,11 +179,12 @@ function words(line: string, s: Session): Token[] {
       continue
     }
     if (c === '$' && quote !== "'") {
-      const m = /^\$\{([A-Za-z_]\w*)\}|^\$([A-Za-z_]\w*)/.exec(line.slice(i))
-      if (!m) fail('Use $nome ou ${nome} para ler uma variável.')
-      const expansion = Object.hasOwn(s.vars, m[1] || m[2])
-        ? s.vars[m[1] || m[2]]
-        : ''
+      const m = /^\$\{([A-Za-z_]\w*|\d+)\}|^\$([A-Za-z_]\w*|\d)/.exec(
+        line.slice(i),
+      )
+      if (!m) fail('Use $nome, ${nome} ou $1 para ler uma variável ou parâmetro.')
+      const key = m[1] || m[2]
+      const expansion = Object.hasOwn(s.vars, key) ? s.vars[key] : ''
       i += m[0].length - 1
       if (quote || /^[A-Za-z_]\w*=/.test(value)) value += expansion
       else {
@@ -151,14 +215,7 @@ function expand(t: Token, s: Session): string[] {
   const slash = t.value.lastIndexOf('/'),
     prefix = t.value.slice(0, slash + 1),
     name = t.value.slice(slash + 1)
-  const pattern = new RegExp(
-    '^' +
-      name
-        .split('*')
-        .map((x) => x.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
-        .join('.*') +
-      '$',
-  )
+  const pattern = globRegex(name)
   const matches = children(s, path(s.cwd, prefix))
     .map(base)
     .filter(
@@ -229,26 +286,35 @@ function parse(source: string): Block {
       fail(
         'Estrutura incompleta. Esperado: ' +
           token +
-          ' (verifique se fechou if/then/else/fi ou for/do/done).',
+          ' (verifique se fechou if/then/elif/else/fi ou for/do/done).',
       )
+  }
+  function parseIf(test: string): Block[number] {
+    expect('then')
+    const yes = block()
+    let no: Block = []
+    if (lines[i] && /^elif\s+/.test(lines[i])) {
+      const nextTest = lines[i++].replace(/^elif\s+/, '')
+      no = [parseIf(nextTest)]
+    } else {
+      if (lines[i] === 'else') {
+        i++
+        no = block()
+      }
+      expect('fi')
+    }
+    return { kind: 'if', test, yes, no }
   }
   function block(): Block {
     const result: Block = []
     while (
       i < lines.length &&
-      !['then', 'else', 'fi', 'do', 'done'].includes(lines[i])
+      !['then', 'else', 'fi', 'do', 'done'].includes(lines[i]) &&
+      !/^elif\s+/.test(lines[i])
     ) {
       const l = lines[i++]
       if (/^if\s+/.test(l)) {
-        expect('then')
-        const yes = block()
-        let no: Block = []
-        if (lines[i] === 'else') {
-          i++
-          no = block()
-        }
-        expect('fi')
-        result.push({ kind: 'if', test: l.slice(3), yes, no })
+        result.push(parseIf(l.replace(/^if\s+/, '')))
       } else if (/^for\s+/.test(l)) {
         const m = /^for\s+([A-Za-z_]\w*)\s+in\s+(.+)$/.exec(l)
         if (!m) throw new Error('Use for nome in lista; do … done.')
@@ -265,6 +331,7 @@ function parse(source: string): Block {
   return result
 }
 export function run(s: Session, source: string): Result {
+  s.execs ??= []
   const result: Result = { out: '', error: '', status: 0, trace: [] }
   let steps = 0
   function execBlock(
@@ -275,10 +342,10 @@ export function run(s: Session, source: string): Result {
   ): number {
     let status = 0
     for (const node of nodes) {
-      if (node.kind === 'cmd') status = command(node.line, env, depth, emit)
+      if (node.kind === 'cmd') status = pipeline(node.line, env, depth, emit)
       else if (node.kind === 'if')
         status = execBlock(
-          command(node.test, env, depth, emit) === 0 ? node.yes : node.no,
+          pipeline(node.test, env, depth, emit) === 0 ? node.yes : node.no,
           env,
           depth,
           emit,
@@ -294,13 +361,61 @@ export function run(s: Session, source: string): Result {
     }
     return status
   }
-  function command(
+  function pipeline(
     line: string,
     env: Session,
     depth: number,
     emit: (v: string) => void,
   ): number {
+    const stages = splitPipeline(line)
+    if (!stages.length) return 0
+    if (stages.length === 1) return command(stages[0], env, depth, emit)
+    let piped: string | undefined
+    let status = 0
+    for (let idx = 0; idx < stages.length; idx++) {
+      const last = idx === stages.length - 1
+      let nextPipe = ''
+      status = command(
+        stages[idx],
+        env,
+        depth,
+        last ? emit : (v) => (nextPipe += v),
+        piped,
+      )
+      piped = nextPipe
+    }
+    return status
+  }
+  function execScript(
+    rawTarget: string,
+    scriptArgs: string[],
+    env: Session,
+    depth: number,
+    output: (v: string) => void,
+  ): number {
+    const absPath = path(env.cwd, rawTarget)
+    const body = read(env, absPath)
+    const vars: Record<string, string> = Object.create(null)
+    vars['0'] = rawTarget
+    scriptArgs.forEach((arg, idx) => {
+      vars[String(idx + 1)] = arg
+    })
+    return execBlock(
+      parse(body),
+      { ...env, vars },
+      depth + 1,
+      output,
+    )
+  }
+  function command(
+    line: string,
+    env: Session,
+    depth: number,
+    emit: (v: string) => void,
+    stdin?: string,
+  ): number {
     if (++steps > 3000 || depth > 8) fail('Limite de operações alcançado.')
+    env.execs ??= []
     let tokens = words(line, env),
       target = '',
       append = false
@@ -355,21 +470,35 @@ export function run(s: Session, source: string): Result {
         }
         break
       case 'ls': {
-        nargs(0, 1)
         if (args[0]?.startsWith('-'))
-          fail('Nesta campanha, use ls ou ls nome-da-pasta.')
-        const p = abs(args[0] || '.')
-        if (env.disk[p] === undefined) fail('Caminho não encontrado: ' + p)
-        const names =
-          env.disk[p] === null
-            ? children(env, p)
-                .map(base)
-                .filter((x) => !x.startsWith('.'))
-            : [args[0]]
-        if (names.length) output(names.join('\n') + '\n')
+          fail('Nesta campanha, use ls, ls pasta ou ls padrão*.')
+        const targets = args.length ? args : ['.']
+        if (targets.length === 1) {
+          const p = abs(targets[0])
+          if (env.disk[p] === undefined) fail('Caminho não encontrado: ' + p)
+          const names =
+            env.disk[p] === null
+              ? children(env, p)
+                  .map(base)
+                  .filter((x) => !x.startsWith('.'))
+              : [targets[0]]
+          if (names.length) output(names.join('\n') + '\n')
+        } else {
+          const files: string[] = []
+          for (const a of targets) {
+            const p = abs(a)
+            if (env.disk[p] === undefined) fail('Caminho não encontrado: ' + p)
+            files.push(a)
+          }
+          if (files.length) output(files.join('\n') + '\n')
+        }
         break
       }
       case 'cat':
+        if (args.length === 0 && stdin !== undefined) {
+          output(stdin)
+          break
+        }
         nargs(1)
         for (const f of args) output(read(env, abs(f)))
         break
@@ -395,47 +524,280 @@ export function run(s: Session, source: string): Result {
             to = env.disk[dst] === null ? path(dst, base(from)) : dst
           if (from === to) fail('Origem e destino são iguais.')
           write(env, to, read(env, from))
-          if (cmd === 'mv') delete env.disk[from]
+          const wasExec = env.execs.includes(from)
+          if (wasExec && !env.execs.includes(to)) env.execs.push(to)
+          if (cmd === 'mv') {
+            delete env.disk[from]
+            env.execs = env.execs.filter((item) => item !== from)
+          }
+        }
+        break
+      }
+      case 'rm': {
+        let force = false
+        const files: string[] = []
+        for (const a of args) {
+          if (a === '-f') force = true
+          else if (/^-[rR]/.test(a) || a === '-rf' || a === '-fr')
+            fail(
+              'Remoção recursiva de pastas (-r) está desativada na estação. Remova apenas arquivos com rm.',
+            )
+          else if (a.startsWith('-'))
+            fail('Confira os argumentos de rm no manual.')
+          else files.push(a)
+        }
+        if (!files.length) fail('Indique o arquivo a remover com rm.')
+        for (const f of files) {
+          const p = abs(f)
+          if (env.disk[p] === undefined) {
+            if (force) continue
+            fail('Arquivo não encontrado: ' + p)
+          }
+          if (env.disk[p] === null)
+            fail('rm não remove pastas nesta campanha: ' + f)
+          delete env.disk[p]
+          env.execs = env.execs.filter((item) => item !== p)
         }
         break
       }
       case 'grep': {
-        nargs(2)
-        const re = new RegExp(args[0])
+        let ignoreCase = false
+        const rest: string[] = []
+        for (const a of args) {
+          if (!rest.length && a === '-i') ignoreCase = true
+          else rest.push(a)
+        }
+        if (!rest.length) fail('Confira os argumentos de grep no manual.')
+        const re = new RegExp(rest[0], ignoreCase ? 'i' : '')
+        const files = rest.slice(1)
         let found = false
-        for (const f of args.slice(1)) {
-          const data = read(env, abs(f)).split('\n')
-          if (data.at(-1) === '') data.pop()
-          for (const l of data)
+        if (!files.length) {
+          if (stdin === undefined)
+            fail('Indique um arquivo ou conecte um comando com | antes de grep.')
+          for (const l of splitLines(stdin))
             if (re.test(l)) {
               found = true
-              output((args.length > 2 ? f + ':' : '') + l + '\n')
+              output(l + '\n')
+            }
+          return found ? 0 : 1
+        }
+        for (const f of files) {
+          for (const l of splitLines(read(env, abs(f))))
+            if (re.test(l)) {
+              found = true
+              output((files.length > 1 ? f + ':' : '') + l + '\n')
             }
         }
         return found ? 0 : 1
+      }
+      case 'sort': {
+        let reverse = false
+        const files: string[] = []
+        for (const a of args) {
+          if (a === '-r') reverse = true
+          else if (a.startsWith('-'))
+            fail('Nesta campanha, use sort ou sort -r.')
+          else files.push(a)
+        }
+        let text = ''
+        if (files.length) {
+          for (const f of files) text += read(env, abs(f))
+        } else if (stdin !== undefined) {
+          text = stdin
+        } else {
+          fail('Indique um arquivo ou conecte um comando com | antes de sort.')
+        }
+        const lines = splitLines(text).sort(cmpC)
+        if (reverse) lines.reverse()
+        if (lines.length) output(lines.join('\n') + '\n')
+        break
+      }
+      case 'uniq': {
+        const files: string[] = []
+        for (const a of args) {
+          if (a.startsWith('-'))
+            fail('Nesta campanha, use uniq após sort (ex.: sort arquivo | uniq).')
+          else files.push(a)
+        }
+        if (files.length > 1) fail('Confira os argumentos de uniq no manual.')
+        const text = files.length
+          ? read(env, abs(files[0]))
+          : stdin !== undefined
+            ? stdin
+            : fail('Indique um arquivo ou conecte um comando com | antes de uniq.')
+        const lines = splitLines(text)
+        const deduped: string[] = []
+        for (const l of lines) {
+          if (!deduped.length || deduped.at(-1) !== l) deduped.push(l)
+        }
+        if (deduped.length) output(deduped.join('\n') + '\n')
+        break
+      }
+      case 'wc': {
+        let countLines = false,
+          countWords = false,
+          countBytes = false
+        const files: string[] = []
+        for (const a of args) {
+          if (a === '-l') countLines = true
+          else if (a === '-w') countWords = true
+          else if (a === '-c') countBytes = true
+          else if (a.startsWith('-'))
+            fail('Nesta campanha, use wc -l para contar linhas.')
+          else files.push(a)
+        }
+        if (!countLines && !countWords && !countBytes) {
+          countLines = countWords = countBytes = true
+        }
+        const metrics = (text: string) => {
+          const vals: number[] = []
+          if (countLines) vals.push((text.match(/\n/g) || []).length)
+          if (countWords)
+            vals.push(text.trim() ? text.trim().split(/\s+/).length : 0)
+          if (countBytes) vals.push(new TextEncoder().encode(text).length)
+          return vals
+        }
+        if (!files.length) {
+          if (stdin === undefined)
+            fail('Indique um arquivo ou conecte um comando com | antes de wc -l.')
+          output(metrics(stdin).join(' ') + '\n')
+          break
+        }
+        const totals = metrics('')
+        for (const f of files) {
+          const m = metrics(read(env, abs(f)))
+          m.forEach((v, idx) => (totals[idx] += v))
+          output(m.join(' ') + ' ' + f + '\n')
+        }
+        if (files.length > 1) output(totals.join(' ') + ' total\n')
+        break
+      }
+      case 'head':
+      case 'tail': {
+        let count = 10
+        const files: string[] = []
+        for (let idx = 0; idx < args.length; idx++) {
+          const a = args[idx]
+          if (a === '-n') {
+            const rawN = args[++idx]
+            if (!rawN || !/^\d+$/.test(rawN))
+              fail('Informe um número inteiro após -n (ex.: ' + cmd + ' -n 2 arquivo).')
+            count = Number(rawN)
+          } else if (/^-\d+$/.test(a)) {
+            count = Number(a.slice(1))
+          } else if (a.startsWith('-')) {
+            fail('Use ' + cmd + ' -n N arquivo (ex.: ' + cmd + ' -n 2 arquivo).')
+          } else {
+            files.push(a)
+          }
+        }
+        const take = (text: string) => {
+          const lines = splitLines(text)
+          const slice =
+            cmd === 'head'
+              ? lines.slice(0, count)
+              : count === 0
+                ? []
+                : lines.slice(-count)
+          return slice.length ? slice.join('\n') + '\n' : ''
+        }
+        if (!files.length) {
+          if (stdin === undefined)
+            fail('Indique um arquivo ou conecte um comando com | antes de ' + cmd + '.')
+          output(take(stdin))
+          break
+        }
+        files.forEach((f, idx) => {
+          if (files.length > 1)
+            output((idx ? '\n' : '') + '==> ' + f + ' <==\n')
+          output(take(read(env, abs(f))))
+        })
+        break
+      }
+      case 'find': {
+        let start = '.'
+        let idx = 0
+        if (args[0] && !args[0].startsWith('-')) {
+          start = args[0]
+          idx = 1
+        }
+        let typeFilter: '' | 'f' | 'd' = ''
+        let namePattern: RegExp | undefined
+        while (idx < args.length) {
+          const flag = args[idx++]
+          if (flag === '-name') {
+            const pat = args[idx++]
+            if (!pat) fail('Informe um padrão após -name (ex.: -name "*.val").')
+            namePattern = globRegex(pat)
+          } else if (flag === '-type') {
+            const t = args[idx++]
+            if (t !== 'f' && t !== 'd')
+              fail('Use -type f (arquivos) ou -type d (pastas).')
+            typeFilter = t
+          } else {
+            fail('Nesta campanha, use find [pasta] [-type f|d] [-name "padrão"].')
+          }
+        }
+        const startAbs = abs(start)
+        if (env.disk[startAbs] === undefined)
+          fail('Caminho não encontrado: ' + start)
+        const prefix = startAbs === '/' ? '/' : startAbs + '/'
+        const startClean = start === '/' ? '/' : start.replace(/\/+$/, '')
+        const keys = Object.keys(env.disk)
+          .filter((k) => k === startAbs || k.startsWith(prefix))
+          .sort(cmpC)
+        const out: string[] = []
+        for (const k of keys) {
+          const isDir = env.disk[k] === null
+          if (typeFilter === 'f' && isDir) continue
+          if (typeFilter === 'd' && !isDir) continue
+          if (namePattern && !namePattern.test(base(k))) continue
+          if (k === startAbs) out.push(start)
+          else {
+            const rel = k.slice(prefix.length)
+            out.push(startClean === '/' ? '/' + rel : startClean + '/' + rel)
+          }
+        }
+        if (out.length) output(out.join('\n') + '\n')
+        break
+      }
+      case 'chmod': {
+        nargs(2)
+        const mode = args[0]
+        const addExec = ['+x', 'u+x', 'a+x'].includes(mode)
+        const remExec = ['-x', 'u-x', 'a-x'].includes(mode)
+        if (!addExec && !remExec)
+          fail('Nesta campanha, use chmod +x arquivo (ou chmod -x arquivo).')
+        for (const f of args.slice(1)) {
+          const p = abs(f)
+          read(env, p)
+          if (addExec) {
+            if (!env.execs.includes(p)) env.execs.push(p)
+          } else {
+            env.execs = env.execs.filter((item) => item !== p)
+          }
+        }
+        break
       }
       case '[':
       case 'test': {
         const a = [...args]
         if (cmd === '[' && a.pop() !== ']') fail('Separe o ] com um espaço.')
-        if (a.length !== 2 || a[0] !== '-s')
-          fail('Use [ -s "$arquivo" ] para testar o tamanho.')
+        if (a.length !== 2 || !['-s', '-f', '-d', '-e'].includes(a[0]))
+          fail(
+            'Use [ -s "$arquivo" ], [ -f "$arquivo" ] ou [ -d "$pasta" ] para testar caminhos.',
+          )
         const v = env.disk[abs(a[1])]
-        return typeof v === 'string' && v.length > 0 ? 0 : 1
+        if (a[0] === '-s') return typeof v === 'string' && v.length > 0 ? 0 : 1
+        if (a[0] === '-f') return typeof v === 'string' ? 0 : 1
+        if (a[0] === '-d') return v === null ? 0 : 1
+        return v !== undefined ? 0 : 1
       }
       case 'bash':
-        nargs(1, 1)
-        return execBlock(
-          parse(read(env, abs(args[0]))),
-          { ...env, vars: Object.create(null) },
-          depth + 1,
-          output,
-        )
-      case 'rm':
+        nargs(1)
+        return execScript(args[0], args.slice(1), env, depth, output)
       case 'unlink':
-        fail(
-          'Os registros da estação são protegidos contra rm. Use mv para mover ou > arquivo para esvaziar.',
-        )
+        fail('Para remover arquivos nesta estação, use rm nome-do-arquivo.')
       case 'touch':
         fail(
           'Para criar ou zerar um arquivo neste simulador, use > nome-do-arquivo.',
@@ -447,12 +809,26 @@ export function run(s: Session, source: string): Result {
         fail(
           'Para escrever scripts ou arquivos de várias linhas, use a aba Editor de script.',
         )
-      default:
+      default: {
+        if (cmd.includes('/')) {
+          const p = abs(cmd)
+          read(env, p)
+          if (!env.execs.includes(p))
+            fail(
+              'Permissão negada: ' +
+                cmd +
+                '. Dê permissão de execução com chmod +x ' +
+                base(p) +
+                '.',
+            )
+          return execScript(cmd, args, env, depth, output)
+        }
         fail(
           'Comando fora do terminal didático: ' +
             cmd +
             '. Consulte o manual de campo.',
         )
+      }
     }
     return 0
   }

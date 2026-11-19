@@ -63,7 +63,7 @@ export function hydrate(state: Save): Save {
   }
   // Old saves inherit every already introduced sector silently, without replaying unlocks.
   if (!Array.isArray(state.library))
-    hydrated.library = ['man', ...chapters.slice(0, Math.min(state.completed + 1, 7)).flatMap((chapter) => chapter.tools)]
+    hydrated.library = ['man', ...chapters.slice(0, Math.min(state.completed + 1, chapters.length)).flatMap((chapter) => chapter.tools)]
   updateTraining(hydrated)
   return hydrated
 }

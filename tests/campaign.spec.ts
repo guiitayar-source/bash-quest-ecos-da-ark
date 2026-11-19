@@ -12,9 +12,11 @@ async function newGame(page: Page, name: string) {
 async function continueLatest(page: Page) {
   await page.getByRole('button', { name: /Continuar/ }).click()
 }
-test('a campanha inteira pode ser concluída pela interface e retomada no editor', async ({
+
+test('a campanha inteira de 12 setores pode ser concluída pela interface e retomada no editor', async ({
   page,
 }) => {
+  test.setTimeout(120_000)
   const errors: string[] = []
   page.on('pageerror', (e) => errors.push(e.message))
   await page.goto('/')
@@ -50,41 +52,59 @@ test('a campanha inteira pode ser concluída pela interface e retomada no editor
     await page.keyboard.press('Escape')
     await expect(page.locator('dialog')).not.toBeVisible()
   }
+  const chapterTitles = [
+    'O despertar',
+    'O corredor apagado',
+    'O arquivo disperso',
+    'Vozes no ruído',
+    'Inventário em lote',
+    'Fluxo de sensores',
+    'Mapa das profundezas',
+    'Uma rotina para amanhã',
+    'Ferramenta reutilizável',
+    'O pulso do fragmento',
+    'Protocolo de segurança',
+  ]
+  const chapterShorts = [
+    'Cabine',
+    'Energia',
+    'Arquivo',
+    'Rádio',
+    'Depósito',
+    'Telemetria',
+    'Dutos',
+    'Oficina',
+    'Controle',
+    'Triagem',
+    'Quarentena',
+    'Núcleo',
+  ]
   const next = async (i: number) => {
-    await title(
-      [
-        'O despertar',
-        'O corredor apagado',
-        'O arquivo disperso',
-        'Vozes no ruído',
-        'Uma rotina para amanhã',
-        'O pulso do fragmento',
-      ][i - 1],
-    )
+    await title(chapterTitles[i - 1])
     await page.getByRole('button', { name: 'Continuar exploração' }).click()
     // Walk clear of equipment before heading to the starboard airlock.
     await clickFloor(317, 149)
-    await page.waitForTimeout(2700)
+    await page.waitForTimeout(2400)
     await approach(411, 144, 'Corredor de manutenção')
     await expect(page.locator('#title')).toHaveText('Corredor de manutenção')
-    await approach(
-      70 + i * 56,
-      119,
-      ['Cabine', 'Energia', 'Arquivo', 'Rádio', 'Oficina', 'Triagem', 'Núcleo'][
-        i
-      ],
+    await approach(64 + i * 32, 119, chapterShorts[i])
+    await expect(page.locator('#sector')).toHaveText(
+      'SETOR ' + String(i + 1).padStart(2, '0'),
     )
-    await expect(page.locator('#sector')).toHaveText('SETOR 0' + (i + 1))
   }
   const openTerminal = async () => {
     await approach(260, 123, 'Acessar terminal')
     await title('Terminal de bordo')
   }
-  const editor = async (name: string, body: string, restore = false) => {
+  const editor = async (
+    name: string,
+    body: string,
+    options: { restore?: boolean; runCmd?: string } = {},
+  ) => {
     await page.getByRole('button', { name: 'Editor de script' }).click()
     await page.locator('#filename').fill(name)
     await page.locator('#code').fill(body)
-    if (restore) {
+    if (options.restore) {
       await expect(page.locator('#saved')).toHaveText('Salvo localmente')
       await page.reload()
       await continueLatest(page)
@@ -93,8 +113,14 @@ test('a campanha inteira pode ser concluída pela interface e retomada no editor
     }
     await page.getByRole('button', { name: 'Salvar arquivo' }).click()
     await title('Terminal de bordo')
-    await command('bash ' + name)
+    if (options.runCmd !== undefined) {
+      if (options.runCmd) await command(options.runCmd)
+    } else {
+      await command('bash ' + name)
+    }
   }
+
+  // Setor 01 — Cabine
   await page.getByRole('button', { name: 'Manual', exact: true }).click()
   await title('man · Biblioteca do operador')
   await leave()
@@ -147,6 +173,8 @@ test('a campanha inteira pode ser concluída pela interface e retomada no editor
   await leave()
   await approach(314, 144, 'Falar com Noah')
   await page.getByRole('button', { name: 'Vou verificar o circuito' }).click()
+
+  // Setor 02 — Energia
   await next(1)
   await expect(page.locator('#mission')).toBeHidden()
   await expect(page.locator('#operator')).toBeHidden()
@@ -177,10 +205,11 @@ test('a campanha inteira pode ser concluída pela interface e retomada no editor
   await expect(page.locator('dialog')).not.toBeVisible()
   await expect(page.locator('#energy-objective')).toHaveText('Energia restaurada')
   await expect(page.locator('#mission')).toBeHidden()
-  // Capture the sequence after several lamps have lit, before the success dialog.
   await page.waitForTimeout(1300)
   await expect(page.locator('dialog')).not.toBeVisible()
   await page.screenshot({ path: 'test-results/energia-restaurando.png', fullPage: true })
+
+  // Setor 03 — Arquivo
   await next(2)
   await expect(page.locator('#mission')).toBeVisible()
   await expect(page.locator('#operator')).toBeVisible()
@@ -192,6 +221,8 @@ test('a campanha inteira pode ser concluída pela interface e retomada no editor
     'Cópia para a enfermaria',
   )
   await command('cp equipe/iara.txt enfermaria/iara.txt')
+
+  // Setor 04 — Rádio
   await next(3)
   await openTerminal()
   await command('grep SOS sinais.log')
@@ -216,7 +247,41 @@ test('a campanha inteira pode ser concluída pela interface e retomada no editor
   await command('mkdir escuta')
   await command('grep "SINAL OK" remessas/antena.log > escuta/transmissao.txt')
   await command('echo inspecionado >> escuta/transmissao.txt')
+
+  // Setor 05 — Depósito (* e rm)
   await next(4)
+  await openTerminal()
+  await command('ls caixas/*.txt')
+  await expect(page.locator('.tguide')).toContainText('Descarte seguro com rm')
+  await command('rm descarte/rascunho.tmp')
+  await command('mkdir ativos')
+  await command('cp caixas/*.txt ativos')
+  await command('rm caixas/*.tmp')
+  await command('cat ativos/bateria-*.txt > baterias.txt')
+
+  // Setor 06 — Telemetria (|, sort, wc, head, tail)
+  await next(5)
+  await openTerminal()
+  await command('grep ALERTA sensores.log | wc -l')
+  await expect(page.locator('.tguide')).toContainText('Lendo o final de um registro')
+  await command('tail -n 2 sensores.log')
+  await command('grep ALERTA sensores.log | sort > alertas.txt')
+  await command('head -n 2 alertas.txt > prioridade.txt')
+  await command('cat alertas.txt | wc -l > contagem.txt')
+
+  // Setor 07 — Dutos (find e uniq)
+  await next(6)
+  await openTerminal()
+  await command('find setores -name "*.val"')
+  await expect(page.locator('.tguide')).toContainText('Eliminando repetições com uniq')
+  await command('grep FALHA historico.log | sort | uniq')
+  await command('find setores -name "*.val" | sort > mapa.txt')
+  await command('grep FALHA historico.log | sort | uniq > falhas.txt')
+  await command('mkdir inspecao')
+  await command('cp setores/subsolo/v04.val inspecao')
+
+  // Setor 08 — Oficina (bash e variáveis)
+  await next(7)
   await openTerminal()
   await expect(
     page.getByRole('button', { name: 'Editor de script' }),
@@ -239,9 +304,26 @@ test('a campanha inteira pode ser concluída pela interface e retomada no editor
   await editor(
     'rotina.sh',
     'fonte=turno.txt\ncat "$fonte" > boletim.txt\necho pronto >> boletim.txt',
-    true,
+    { restore: true },
   )
-  await next(5)
+
+  // Setor 09 — Controle (chmod, ./, $1)
+  await next(8)
+  await openTerminal()
+  await command('chmod +x teste.sh')
+  await command('./teste.sh ok')
+  await expect(page.locator('.tguide')).toContainText('Testando o filtro de eventos')
+  await command('grep EVENTO diurno.log | sort')
+  await editor(
+    'resumo.sh',
+    'grep EVENTO "$1" | sort > resumo.txt\ngrep EVENTO "$1" | wc -l >> resumo.txt',
+    { runCmd: '' },
+  )
+  await command('chmod +x resumo.sh')
+  await command('./resumo.sh diurno.log')
+
+  // Setor 10 — Triagem (if, -s)
+  await next(9)
   await openTerminal()
   await command('cat amostra.frag')
   await command('cat reserva.frag')
@@ -254,7 +336,22 @@ test('a campanha inteira pode ser concluída pela interface e retomada no editor
     'triagem.sh',
     'if [ -s amostra.frag ]; then\n echo legível > estado.txt\nelse\n echo vazio > estado.txt\nfi',
   )
-  await next(6)
+
+  // Setor 11 — Quarentena (-f, -d, elif)
+  await next(10)
+  await openTerminal()
+  await command('[ -d lote ]')
+  await command('[ -f vazio.frag ]')
+  await expect(page.locator('.tguide')).toContainText('Encadeando decisões com elif')
+  await command('if [ -d vazio.frag ]; then echo pasta > ensaio.txt; elif [ -f vazio.frag ]; then echo arquivo > ensaio.txt; fi')
+  await editor(
+    'validar.sh',
+    'if [ -d "$1" ]; then\n  echo pasta > diagnostico.txt\nelif [ -s "$1" ]; then\n  echo valido > diagnostico.txt\nelif [ -f "$1" ]; then\n  echo vazio > diagnostico.txt\nelse\n  echo ausente > diagnostico.txt\nfi',
+    { runCmd: 'bash validar.sh lote/eco.frag' },
+  )
+
+  // Setor 12 — Núcleo (for)
+  await next(11)
   await openTerminal()
   await expect(page.locator('.term-explorer')).toBeVisible()
   await page.locator('#command').fill('cat fragment')
@@ -274,12 +371,12 @@ test('a campanha inteira pode ser concluída pela interface e retomada no editor
   await expect(page.locator('dialog')).toContainText('Noah: encontramos')
   await leave()
   await expect(page.locator('#route-count')).toHaveText(
-    '7 de 7 setores restaurados',
+    '12 de 12 setores restaurados',
   )
   await openTerminal()
   await command('bash recuperar.sh')
   await leave()
-  await expect(page.locator('#operator')).toContainText('700 XP')
+  await expect(page.locator('#operator')).toContainText('1200 XP')
   await page.getByRole('button', { name: /SETOR 03/ }).click()
   await page.getByRole('button', { name: 'Ir para este setor' }).click()
   await expect(page.locator('#title')).toHaveText('Arquivo da tripulação')

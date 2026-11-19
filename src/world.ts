@@ -1,5 +1,5 @@
 import Phaser from 'phaser'
-import { chapters, type Save } from './campaign'
+import { chapters, FINAL_CHAPTER, TOTAL_CHAPTERS, type Save } from './campaign'
 import { crew, suits, type NPC } from './story'
 export type Spot = {
   kind: 'terminal' | 'machine' | 'airlock' | 'port' | 'log' | 'npc'
@@ -13,7 +13,7 @@ export function points(s: Save): Spot[] {
   if (s.room === -1)
     return chapters.map((c, i) => ({
       kind: 'port',
-      x: 70 + i * 56,
+      x: 64 + i * 32,
       y: 128,
       name: c.short,
       index: i,
@@ -21,7 +21,7 @@ export function points(s: Save): Spot[] {
   const people: NPC[] =
     s.room === 0
       ? ['lara', 'noah']
-      : [[3, 5, 6].includes(s.room) ? 'lara' : 'noah']
+      : [[3, 5, 9, 10, 11].includes(s.room) ? 'lara' : 'noah']
   return [
     ...people.map((npc): Spot => ({
       ...crew[npc],
@@ -42,7 +42,7 @@ export function points(s: Save): Spot[] {
       x: 358,
       y: 193,
       name:
-        s.room === 6 && s.completed === 7
+        s.room === FINAL_CHAPTER && s.completed === TOTAL_CHAPTERS
           ? 'Arquivo recuperado'
           : 'Registro da tripulação',
     },
@@ -98,8 +98,8 @@ export function bootWorld(
       this.energyStart = this.time.now
     }
     preload() {
-      for (let n = -1; n < 7; n++)
-        for (let active = 0; active < (n === -1 ? 8 : 2); active++) {
+      for (let n = -1; n < TOTAL_CHAPTERS; n++)
+        for (let active = 0; active < (n === -1 ? TOTAL_CHAPTERS + 1 : 2); active++) {
           const id = 'room-' + n + '-' + active
           this.load.image(id, '/art/' + id + '.png')
         }
@@ -167,9 +167,10 @@ export function bootWorld(
       })
       this.input.on('pointerdown', (p: Phaser.Input.Pointer) => {
         if (paused()) return
-        const pt = points(s).find(
-          (q) => Math.hypot(p.x - q.x, p.y - (q.y - 10)) < 27,
-        )
+        const pt = points(s)
+          .map((q) => ({ q, d: Math.hypot(p.x - q.x, p.y - (q.y - 10)) }))
+          .filter((item) => item.d < (item.q.kind === 'port' ? 20 : 27))
+          .sort((a, b) => a.d - b.d)[0]?.q
         this.target = pt
           ? {
               x: pt.kind === 'machine' ? 132 : pt.x,
@@ -189,7 +190,7 @@ export function bootWorld(
           s.room +
           '-' +
           (s.room === -1
-            ? Math.min(7, s.completed)
+            ? Math.min(TOTAL_CHAPTERS, s.completed)
             : Number(s.completed > s.room)),
       )
       this.actor.setPosition(s.x, s.y)
